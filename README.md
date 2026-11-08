@@ -4,7 +4,7 @@
 
 使用 ArkTS / ArkUI 构建的鸿蒙原生影视搜索与播放应用。
 
-当前版本 **1.7.5 开发预览**：HarmonyOS API 26，最低 API 23，原生播放库支持 **ARM64**。包名为 `io.webber.wtv`。
+当前版本 **1.7.6 开发预览**：HarmonyOS API 26，最低 API 23，原生播放库支持 **ARM64**。包名为 `io.webber.wtv`。
 
 [下载 HAP 与源码](https://github.com/Swebersmith/WTV-Harmony/releases) · [更新记录](CHANGELOG.md) · [第三方许可](THIRD_PARTY_NOTICES.md)
 
@@ -18,7 +18,9 @@
 - 播放画面左侧上下滑动调整亮度，右侧上下滑动调整系统媒体音量；音量键变化同步到播放器设置。
 - 观看记录原生左滑删除，提供 5 秒撤销。
 - 系统控制中心与锁屏媒体卡片：片名、集数、封面、时长、进度，支持播放、暂停、切集、快进快退、定位、倍速及返回播放页。
-- 原生后台放音、系统媒体实况窗适配、系统画中画小窗及可选的返回桌面自动小窗。
+- 系统投播：播放页右上角选择远端设备，由接收端拉流播放；手机显示投屏设备、远端进度，并可暂停、继续或停止投屏。
+- 原生后台放音、系统媒体实况窗适配、系统画中画小窗及可选的返回桌面自动小窗；从小窗还原时直接回到播放页，不重建页面。
+- 播放器控制层点击画面即隐藏，暂停状态也可以收起；操作播放、倍速、音量或亮度时重新显示。
 - 系统分享、粘贴按钮、网络状态、浅色 / 深色主题。
 - 左上角常驻「搜索 / 播放 / 片单 / 设置」原生标题，滚动联动沉浸式渐变模糊；56vp 纯图标悬浮底栏和原生页面转场。
 - 切换栏目及打开接口编辑时不自动弹出键盘，点击输入框正常输入。
@@ -40,6 +42,8 @@
 
 原生 MPV 线路接入官方 [AVSession 后台播放方案](https://developer.huawei.com/consumer/cn/doc/HarmonyOS-Guides/avsession-background-scene/)，同时声明 `KEEP_BACKGROUND_RUNNING` 和 `audioPlayback` / `avPlaybackAndRecord` 后台模式。播放时按官方对照表申请 `MODE_AV_PLAYBACK_AND_RECORD`（12）与 `SUBMODE_AVSESSION_AUDIO_PLAYBACK`（5）的音视频长时任务，暂停、切源、切换网页线路或退出播放时释放；申请失败时不能保证后台续播，会给出提示。后台播放默认开启，可在设置页关闭。任务应在前台开始播放时取得，退后台后继续持有；诊断日志记录申请、返回 ID、拒绝错误码、释放以及系统取消的原因。
 
+投播使用系统 `AVCastPicker` 投播组件和 `AVCastController`。播放时通过 AVSession 声明 `url-cast` 能力并设置 Cast+ / DLNA 协议过滤，右上角组件负责设备发现；远端连接后读取当前媒体地址，按官方 `prepare` → `start` 流程下发 `AVQueueItem`，本机暂停。投屏中系统播控中心与锁屏的播放、暂停、定位、快进快退、倍速会转投到远端；结束投屏或远端断开后，本机从远端返回的进度继续播放。网页型线路由第三方网页掌管媒体，不进入投播流程。
+
 媒体实况窗由系统按照 AVSession 元数据、播放状态和 `setBackgroundPlayMode` 展示，不另发自定义实况窗。后台播放模式接口从 API 24 起可用；API 23 保留基础媒体卡片与后台任务接入，实况窗及具体样式由系统版本决定。点击系统卡片可返回当前播放页。
 
 点击播放器右上角的小窗图标，进入官方 [PiPWindow 画中画](https://developer.huawei.com/consumer/cn/doc/harmonyos-guides/pipwindow-typenode/)。主页面使用 NodeContainer 挂载 typeNode XComponent；在 ABOUT_TO_START 从页面移除同一视频节点，交由系统小窗挂载，在 ABOUT_TO_STOP 恢复到页面。MPV 继续使用同一节点与表面，提供系统播放 / 暂停、上一集 / 下一集控件；无更多剧集时禁用相应按钮。恢复到应用时继续播放，关闭小窗时暂停。设置页可开启「退出应用时自动小窗」（默认关闭，需要开启后台播放）。
@@ -56,7 +60,7 @@
 
 ## 安装
 
-在 [Releases](https://github.com/Swebersmith/WTV-Harmony/releases) 下载 `WTV-Harmony-1.7.5-unsigned.hap`。
+在 [Releases](https://github.com/Swebersmith/WTV-Harmony/releases) 下载已发布的未签名 HAP；1.7.6 当前只提交源码，未上传安装包，需要时用本机脚本构建。
 
 发布附件为**未签名调试包**，需要使用自己的有效鸿蒙签名身份签名后安装。升级时保持相同包名与签名身份，以便覆盖安装并保留本地数据。
 
@@ -80,7 +84,7 @@ Windows PowerShell 示例，建议将工具与构建目录放在英文路径：
 
 ## 检查
 
-使用 SDK 中的 TypeScript 转译器运行 77 项协议、播放生命周期、音量、亮度、后台任务、系统会话和画中画逻辑检查：
+使用 SDK 中的 TypeScript 转译器运行 79 项协议、播放生命周期、投播、音量、亮度、后台任务、系统会话和画中画逻辑检查：
 
 ```powershell
 $env:ARKTS_TYPESCRIPT = 'C:\Tools\command-line-tools\sdk\default\openharmony\ets\build-tools\ets-loader\node_modules\typescript'
@@ -89,7 +93,7 @@ node --test .\checks\native.mjs
 
 也可运行 `npm ci --ignore-scripts` 与 `npm test`，使用固定版本的标准 TypeScript 转译器执行同一组逻辑检查。测试中的 HTTP、音量、窗口、AVSession、后台任务、PiP 和 MPV 运行时使用替身；页面事件处理器只验证逻辑，不模拟渲染。
 
-**验证范围：** API 26 编译、ARM64 原生库和 HAP 结构检查已通过。1.7.5 的控制中心卡片、锁屏卡片、实况窗、锁屏后台音频、系统 PiP 节点迁移和恢复尚未连接真机验证，因此当前发布标记为开发预览。逻辑替身不能验证系统 UI、系统后台调度或实际解码连续性。
+**验证范围：** API 26 编译、ARM64 原生库和 HAP 结构检查已通过，79 项逻辑检查通过。1.7.6 的系统投播、投屏后系统播控、控制层点击隐藏、接口设置二级页、底栏图标位置与系统小窗还原需要在真机上复测；投播还取决于接收端设备与局域网。逻辑替身不能验证系统 UI、系统后台调度或实际解码连续性。
 
 ## 许可与来源
 

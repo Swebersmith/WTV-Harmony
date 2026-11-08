@@ -1,12 +1,14 @@
 # 系统播控与画中画接入依据
 
-WTV 1.7.2 采用下列华为官方指导，后续修改相关能力时应先核对当前官方文档和 SDK 声明，再验证真机行为。
+WTV 1.7.6 采用下列华为官方指导，后续修改相关能力时应先核对当前官方文档和 SDK 声明，再验证真机行为。
 
 - [画中画开发概述](https://developer.huawei.com/consumer/cn/doc/doccenter-capabilities/pipwindow-overview)
 - [typeNode 画中画开发](https://developer.huawei.com/consumer/cn/doc/HarmonyOS-Guides/pipwindow-typenode/)
 - [AVSession 接入场景](https://developer.huawei.com/consumer/cn/doc/doccenter-capabilities/avsession-access-scene)
 - [AVSession 进度与控制示例](https://developer.huawei.com/consumer/cn/doc/harmonyos-guides/avsession-access-scene/)
 - [后台播放](https://developer.huawei.com/consumer/cn/doc/HarmonyOS-Guides/avsession-background-scene/)
+- [投播开发指导](https://developer.huawei.com/consumer/cn/doc/harmonyos-guides/distributed-playback-guide)
+- [AVCastPicker 投播组件](https://developer.huawei.com/consumer/cn/doc/harmonyOS-references/ohos-multimedia-avcastpicker)
 - [画中画接口](https://developer.huawei.com/consumer/cn/doc/harmonyos-references/js-apis-pipwindow/)
 - [窗口错误码](https://developer.huawei.com/consumer/cn/doc/harmonyos-references/errorcode-window/)
 
@@ -22,7 +24,7 @@ VideoSurface 作为 NodeController，创建 typeNode XComponent；主页面通�
 
 1. ABOUT_TO_START：只从页面父节点移除视频节点，由系统挂载到画中画。
 2. STARTED：更新播控状态，重复回调不能再次移除系统已挂载的节点。
-3. ABOUT_TO_RESTORE：标记还原并通知页面恢复播放栏目。
+3. ABOUT_TO_RESTORE：标记还原并通知页面恢复播放栏目；这里只切回播放页，不清空导航栈、不重复打开页面，避免还原时整页刷新。
 4. ABOUT_TO_STOP：把视频节点移回页面。
 5. STOPPED：结束小窗占用；用户关闭则暂停，还原则继续播放。
 6. 退出整个应用组件时，在关闭小窗后统一释放视频节点。
@@ -30,6 +32,18 @@ VideoSurface 作为 NodeController，创建 typeNode XComponent；主页面通�
 这条路径迁移节点，不主动创建第二个 MPV 渲染表面；若系统确实销毁和重建表面，原生控制器仍保留音频内核并处理 surface 回调。画面尺寸从 XComponent 的真实 surface 尺寸回调更新。
 
 自动小窗通过 setAutoStartEnabled 配置，由系统在主窗口退后台时触发；不在 onBackground 内手动调用 startPiP。用户手动打开时应用应位于前台。
+
+## 投播
+
+1.7.6 使用系统 `AVCastPicker` 作为设备发现入口。播放页右上角只在原生 AVSession 就绪后显示该组件，本机不在 onBackground 等位置自行扫描设备。
+
+1. AVSession 创建后调用 `setExtras({requireAbilityList:['url-cast']})`，并在 AVMetadata 中设置 `filter` 为 Cast+ Stream 与 DLNA 的组合，交给系统投播框架发现设备。
+2. `outputDeviceChange` 收到 `CATEGORY_REMOTE` + `STATE_CONNECTED` 后调用 `getAVCastController()`；`prepare` 只在首次投播时调用，随后 `start`。`AVQueueItem.description` 使用当前媒体地址、assetId、标题、时长和毫秒级 `startPosition`，由接收端拉流。
+3. 投播开始后本机 MPV 暂停，画面内显示设备、远端进度与停止入口。系统播控中心 / 锁屏的播放、暂停、seek、快进快退、倍速统一转为 `sendControlCommand`。
+4. 收到 `CATEGORY_LOCAL` 或远端断开时，释放 AVCastController 并 `stopCasting()`，本机按远端最后进度续播。
+5. 网页型线路由第三方网页掌管媒体，不进入本应用的投播流程。
+
+设备发现、协议与接收端解码能力由系统投播框架和远端设备决定；无接收端的模拟器不能验证实际投屏画面。
 
 ## 后台长时任务的类型映射
 
@@ -47,6 +61,9 @@ VideoSurface 作为 NodeController，创建 typeNode XComponent；主页面通�
 
 - 原生视频播放后点击小窗，确认持续有画面、有声音，拖动和缩放正常。
 - 连续点击小窗只启动一次；关闭后暂停，还原后继续播放。
+- 从小窗还原回应用，确认停留在播放页、页面不重新加载，视频继续而不是回到搜索页。
+- 播放后点击右上角投屏，选择同一局域网设备，确认远端出现画面、手机暂停并显示投屏设备与远端进度。
+- 投屏中从手机控制中心暂停 / 继续 / 拖动进度，确认远端同步；结束投屏或关闭远端后确认手机从上次进度续播。
 - 开启后台播放与自动小窗，返回桌面确认系统启动小窗；检查系统画中画开关。
 - 控制中心、锁屏卡片分别验证暂停/播放、快进/快退和进度拖动；返回页面确认画面实际位于新位置。
 - 连续拖动、暂停后拖动、切集、网页线路切换和全屏还原分别复测。

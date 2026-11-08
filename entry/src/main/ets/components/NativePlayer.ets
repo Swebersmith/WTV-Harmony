@@ -3,6 +3,7 @@ import { VideoSurface } from '../services/VideoSurface';
 import { common } from '@kit.AbilityKit';
 import { window } from '@kit.ArkUI';
 import { AVVolumePanel } from '@kit.AudioKit';
+import { AVCastPicker, AVCastPickerState } from '@kit.AVSessionKit';
 import { SystemMediaVolume, PlayerBrightness, MediaVolume, volumeFromSwipe, brightnessFromSwipe } from '../services/PlayerDeviceControls';
 
 const WHITE: string = '#F3F6FA';
@@ -27,11 +28,18 @@ export struct NativePlayer {
   @Prop episodeIndex: number = -1;
   @Prop @Watch('pipChanged') inPip: boolean = false;
   @Prop @Watch('syncRate') systemRate: number = 1;
+  @Prop castReady: boolean = false;
+  @Prop @Watch('castModeChanged') casting: boolean = false;
+  @Prop castDevice: string = '';
+  @Prop castElapsed: number = 0;
+  @Prop castPlaying: boolean = false;
   onSmallWindow: () => void = (): void => {};
   onRestoreWindow: () => void = (): void => {};
   onFullscreen: (value: boolean) => void = (): void => {};
   onEpisode: (index: number) => void = (): void => {};
   onRetry: () => void = (): void => {};
+  onCastToggle: () => void = (): void => {};
+  onCastStop: () => void = (): void => {};
   private hideTimer: number = -1;
   private hintTimer: number = -1;
   private widthVp: number = 360;
@@ -77,6 +85,7 @@ export struct NativePlayer {
   aboutToDisappear(): void { this.disposed = true; this.closeDeviceControls(); this.endHold(); clearTimeout(this.hideTimer); clearTimeout(this.hintTimer); if (!this.controller.isRetained()) this.controller.detach(); }
   syncRate(): void { this.rate = this.systemRate; }
   pipChanged(): void { this.endHold(); this.panel = ''; this.deviceVisibilityChanged(); }
+  castModeChanged(): void { this.endHold(); this.panel = ''; this.visible = true; }
   deviceVisibilityChanged(): void {
     if (this.disposed || !this.active || !this.foreground || this.inPip) { this.endHold(); this.closeDeviceControls(); return; }
     const revision = ++this.deviceRevision;
@@ -189,6 +198,45 @@ export struct NativePlayer {
       .accessibilityText(label).stateStyles({pressed:{backgroundColor:'#40A1E6D0'}}).onClick(action)
   }
   @Builder
+  castGlyph() {
+    Stack({alignContent:Alignment.Center}) {
+      Image($r('app.media.player_cast')).width(21).height(21).objectFit(ImageFit.Contain)
+    }.width('100%').height('100%')
+  }
+  @Builder
+  castButton() {
+    Stack() {
+      // The official picker owns device discovery; the builder only replaces its look.
+      AVCastPicker({normalColor:WHITE,activeColor:MINT,sessionType:'video',
+        customPicker:(): void => this.castGlyph(),
+        onStateChange:(state: AVCastPickerState): void => {
+          if (state === AVCastPickerState.STATE_APPEARING) this.activity();
+          else this.armHide();
+        }
+      }).width(40).height(40)
+    }.width(40).height(40).borderRadius(20).backgroundColor('#99121D28').clip(true)
+  }
+  @Builder
+  castOverlay() {
+    Column() {
+      Column({space:10}) {
+        Image($r('app.media.player_cast')).width(32).height(32).objectFit(ImageFit.Contain)
+        Text('正在投屏').fontSize(11).fontColor(MINT)
+        Text(this.castDevice || '已连接的设备').fontSize(17).fontWeight(FontWeight.Medium).fontColor(WHITE).maxLines(1)
+        Text(this.duration > 0 ? `${this.time(this.castElapsed)} / ${this.time(this.duration)}` : this.time(this.castElapsed))
+          .fontSize(11).fontColor('#B9C6CF')
+        Row({space:10}) {
+          Button(this.castPlaying ? '暂停' : '播放',{type:ButtonType.Normal}).height(34).fontSize(12).borderRadius(10)
+            .backgroundColor('#20FFFFFF').fontColor(WHITE).padding({left:16,right:16})
+            .onClick((): void => this.onCastToggle())
+          Button('停止投屏',{type:ButtonType.Normal}).height(34).fontSize(12).borderRadius(10)
+            .backgroundColor(MINT).fontColor('#132A29').padding({left:16,right:16})
+            .onClick((): void => this.onCastStop())
+        }
+      }.padding(20).width('76%').backgroundColor('#F21B2531').border({width:1,color:'#26FFFFFF'}).borderRadius(20)
+    }.width('100%').height('100%').justifyContent(FlexAlign.Center).backgroundColor('#6608111A')
+  }
+  @Builder
   skipButton(forward: boolean) {
     Button({type:ButtonType.Normal}) {
       Column({space:2}) {
@@ -209,6 +257,7 @@ export struct NativePlayer {
           Text(this.subtitle || '原生播放').fontSize(10).fontColor('#B9C6CF').maxLines(1).width('100%')
         }.layoutWeight(1)
         if (this.fullscreen) { this.icon($r('app.media.player_lock'),'锁定播放控件',(): void => { this.locked = true; this.panel = ''; this.visible = false; }) }
+        if (this.castReady) { this.castButton() }
         this.icon($r('app.media.player_pip'),'小窗播放',(): void => this.onSmallWindow())
         this.icon($r('app.media.player_settings'),'播放设置',(): void => this.openPanel('settings'))
       }.width('100%')
@@ -308,9 +357,10 @@ export struct NativePlayer {
           PanGesture({direction:PanDirection.All,distance:12}).onActionStart((event: GestureEvent): void => this.panStart(event)).onActionUpdate((event: GestureEvent): void => this.panUpdate(event))
             .onActionEnd((): void => this.panEnd(true)).onActionCancel((): void => this.panEnd(false)),
           TapGesture({count:2}).onAction((event: GestureEvent): void => this.doubleTap(event)),
-          TapGesture().onAction((): void => { if (!this.locked && !this.inPip) { this.visible = !this.visible; this.panel = ''; this.armHide(); } })
+          TapGesture().onAction((): void => { if (!this.locked && !this.inPip && !this.casting) { this.visible = !this.visible; this.panel = ''; this.armHide(); } })
         ))
-      if ((this.visible || !this.playing) && !this.locked && !this.panel && !this.inPip) { this.controls() }
+      if (this.casting && !this.locked) { this.castOverlay() }
+      if (this.visible && !this.locked && !this.panel && !this.inPip && !this.casting) { this.controls() }
       if (this.buffering && !this.error) { LoadingProgress().width(34).height(34).color(MINT).hitTestBehavior(HitTestMode.None) }
       if (this.hint) { Text(this.hint).fontSize(13).fontColor(WHITE).backgroundColor('#C0192631').padding(12).borderRadius(12).hitTestBehavior(HitTestMode.None) }
       if (this.active && this.foreground && this.volumeReady && this.volumeCommandIssued) {

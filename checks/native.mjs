@@ -53,20 +53,38 @@ const backgroundApi={ContinuousTaskRequest:class{},BackgroundTaskMode:{MODE_AUDI
     if(taskFailure)throw Error('lease denied');this.starts.push(request);await taskGate;return {continuousTaskId:++taskNumber};},
   async stopBackgroundRunning(context,id){this.stops.push(id);this.listeners.forEach(cb=>cb({id}));}};
 let sessionGate,activationGate;
+const castControllers=[];
+class FakeCastController {
+  callbacks=new Map();commands=[];prepared=[];started=[];released=0;
+  on(event,filter,callback){this.callbacks.set(event,typeof filter==='function'?filter:callback);}
+  off(event,cb){if(!cb||this.callbacks.get(event)===cb)this.callbacks.delete(event);}
+  async prepare(item){this.prepared.push(item);}
+  async start(item){this.started.push(item);}
+  async sendControlCommand(command){this.commands.push(command);}
+  async release(){this.released++;}
+  emit(event,...args){this.callbacks.get(event)?.(...args);}
+}
 const systemSessions=[];
 class FakeSession {
-  commands=new Map();metadata=[];states=[];background=[];destroyed=0;active=0;rejectArtwork=false;
+  commands=new Map();metadata=[];states=[];background=[];destroyed=0;active=0;rejectArtwork=false;castStopped=0;
   on(event,cb){this.commands.set(event,cb);}
+  off(event,cb){if(!cb||this.commands.get(event)===cb)this.commands.delete(event);}
+  async setExtras(value){this.extras=value;}
   async setLaunchAbility(value){this.launch=value;}
   async setSupportedPlaySpeeds(value){this.speeds=value;}
   async setBackgroundPlayMode(value){this.background.push(value);}
   async setAVMetadata(value){if(this.rejectArtwork&&value.mediaImage)throw Error('artwork rejected');this.metadata.push(value);}
   async setAVPlaybackState(value){this.states.push(value);}
+  async getAVCastController(){const controller=new FakeCastController();this.castControllers=[...(this.castControllers||[]),controller];castControllers.push(controller);return controller;}
+  async stopCasting(){this.castStopped++;}
   async activate(){await activationGate;this.active++;}
   async destroy(){this.destroyed++;}
 }
 const sessionApi={BackgroundPlayMode:{ENABLE_BACKGROUND_PLAY:0,DISABLE_BACKGROUND_PLAY:1},SkipIntervals:{SECONDS_10:10},
+  ProtocolType:{TYPE_LOCAL:0,TYPE_CAST_PLUS_STREAM:2,TYPE_DLNA:4},AVCastCategory:{CATEGORY_LOCAL:0,CATEGORY_REMOTE:1},
+  ConnectionState:{STATE_CONNECTED:1,STATE_DISCONNECTED:6},
   PlaybackState:{PLAYBACK_STATE_PLAY:1,PLAYBACK_STATE_PAUSE:2,PLAYBACK_STATE_BUFFERING:6},async createAVSession(context,tag,type){assert.equal(type,'video');await sessionGate;const s=new FakeSession();systemSessions.push(s);return s;}};
+const mediaApi={PlaybackSpeed:{SPEED_FORWARD_0_75_X:0,SPEED_FORWARD_1_00_X:1,SPEED_FORWARD_1_25_X:2,SPEED_FORWARD_1_75_X:3,SPEED_FORWARD_2_00_X:4,SPEED_FORWARD_1_50_X:6}};
 let pipGate,pipStartGate;
 const pipControllers=[];
 const pipNodes=[];
@@ -134,6 +152,7 @@ function load(name) {
   const module = {exports:{}};
   const kits={'@kit.NetworkKit':{http},'@kit.ArkUI':{window:windowApi,PiPWindow:pipApi,typeNode:nodeApi,NodeController:FakeNodeController,FrameNode:FakeFrameNode},'@kit.AudioKit':{audio:audioApi},
     '@kit.AbilityKit':abilityApi,'@kit.BackgroundTasksKit':{backgroundTaskManager:backgroundApi},'@kit.AVSessionKit':{avSession:sessionApi},
+    '@kit.MediaKit':{media:mediaApi},
     '@kit.ArkData':{preferences:{}},'@kit.ShareKit':{},'@kit.UIDesignKit':{HdsTabsController:class{changeIndex(){}},hdsMaterial:{MaterialType:{ADAPTIVE:0}}},
     '@kit.BasicServicesKit':{deviceInfo},'@kit.PerformanceAnalysisKit':{hilog:{info(){}},hiAppEvent:hiAppEventApi},'@kit.CoreFileKit':{fileIo:fileApi,picker:pickerApi}};
   const localRequire = id => kits[id] || (id.endsWith('components/WebPlayer') ? {WebPlayerHandle:class{exitFullscreen(){return false;}}} :
@@ -544,6 +563,49 @@ test('lock-screen metadata and seek progress use milliseconds; frequent ticks th
   await service.update(false,25,1.5);assert.equal(session.states.at(-1).position.elapsedTime,25000);
   session.rejectArtwork=true;await service.metadata('episode-2','第二集','第 2 集','https://image.example/rejected.jpg',1500);
   assert.equal(session.metadata.at(-1).assetId,'episode-2');assert.equal(session.metadata.at(-1).mediaImage,undefined);await service.close();
+});
+test('cast declares the URL capability, prepares the current media and routes system commands to the receiver',async()=>{
+  const service=new MediaSession(),events=[];
+  service.setCastEvents({started:device=>events.push(['started',device]),stopped:seconds=>events.push(['stopped',seconds]),
+    state:playing=>events.push(['state',playing]),position:seconds=>events.push(['position',seconds]),error:message=>events.push(['error',message])});
+  await service.open(appContext,mediaCommands());
+  const session=systemSessions.at(-1);
+  assert.deepEqual(session.extras,{requireAbilityList:['url-cast']});
+  await service.metadata('episode-1','剧名','第 1 集','',120);
+  assert.equal(session.metadata.at(-1).filter,6);
+  service.setCastMedia('https://cdn.example/show.m3u8',12.5,120,'episode-1','剧名','第 1 集');
+  session.commands.get('outputDeviceChange')(1,{devices:[{castCategory:1,deviceName:'客厅电视',deviceId:'tv-1'}]});
+  await flush();await flush();
+  const cast=castControllers.at(-1);
+  assert.equal(cast.prepared.length,1);assert.equal(cast.started.length,1);
+  assert.equal(cast.started[0].description.mediaUri,'https://cdn.example/show.m3u8');
+  assert.equal(cast.started[0].description.assetId,'episode-1');
+  assert.equal(cast.started[0].description.mediaType,'VIDEO');
+  assert.equal(cast.started[0].description.duration,120000);
+  assert.equal(cast.started[0].description.startPosition,12500);
+  assert.deepEqual(events.find(e=>e[0]==='started'),['started','客厅电视']);
+  session.commands.get('play')();await flush();assert.equal(cast.commands.at(-1).command,'play');
+  session.commands.get('seek')(30000);await flush();assert.deepEqual(cast.commands.at(-1),{command:'seek',parameter:30000});
+  session.commands.get('setSpeed')(1.5);await flush();assert.equal(cast.commands.at(-1).command,'setSpeed');
+  cast.emit('playbackStateChange',{state:1,position:{elapsedTime:15000,updateTime:1}});
+  assert.equal(events.some(e=>e[0]==='position'&&e[1]===15),true);
+  assert.equal(events.some(e=>e[0]==='state'&&e[1]===true),true);
+  await service.stopCast();
+  assert.equal(session.castStopped,1);assert.equal(cast.released,1);
+  assert.equal(events.some(e=>e[0]==='stopped'&&e[1]===15),true);
+  await service.close();
+});
+test('cast without a loaded media URL reports an error and keeps the local session usable',async()=>{
+  const service=new MediaSession(),events=[],before=castControllers.length;
+  service.setCastEvents({started:()=>events.push('started'),stopped:()=>events.push('stopped'),state:()=>events.push('state'),
+    position:()=>events.push('position'),error:message=>events.push(['error',message])});
+  await service.open(appContext,mediaCommands());
+  const session=systemSessions.at(-1);
+  session.commands.get('outputDeviceChange')(1,{devices:[{castCategory:1,deviceName:'电视',deviceId:'tv'}]});
+  await flush();await flush();
+  assert.deepEqual(events,[['error','请先开始播放，再连接投屏设备']]);
+  assert.equal(castControllers.length,before);
+  await service.close();
 });
 test('closing a session during activation destroys the late candidate; reopening waits for the old close',async()=>{
   const gate=deferred();activationGate=gate.promise;const service=new MediaSession();const open=service.open(appContext,mediaCommands());await flush();

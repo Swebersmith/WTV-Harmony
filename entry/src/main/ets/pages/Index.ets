@@ -59,7 +59,7 @@ struct Index {
   private orientationQueue: Promise<void> = Promise.resolve();
   private context?: common.UIAbilityContext;
   private net?: connection.NetConnection;
-  private sessionReady: boolean = false;
+  @State sessionReady: boolean = false;
   private searchSerial: number = 0;
   private detailSerial: number = 0;
   private resolveSerial: number = 0;
@@ -128,6 +128,10 @@ struct Index {
   @State autoNext: boolean = true;
   @State backgroundPlayback: boolean = true;
   @State autoPip: boolean = false;
+  @State casting: boolean = false;
+  @State castDevice: string = '';
+  @State castElapsed: number = 0;
+  @State castPlaying: boolean = false;
   @State pipActive: boolean = false;
   @State playbackRate: number = 1;
   @State network: string = '检查网络';
@@ -146,6 +150,7 @@ struct Index {
     this.video.listen({
       prepared:(duration: number): void => {
         this.duration = duration; this.resumeAt = 0; this.updateMetadata();
+        this.media.setCastMedia(this.mediaUrl,this.elapsed,duration,this.currentEpisode.url,this.currentMovie.title,this.currentEpisode.title);
         const size = this.video.getVideoSize(); this.pip.size(size[0],size[1]); this.ensurePip().catch((): void => {});
       },
       time:(seconds: number): void => { this.elapsed = seconds; this.savePosition(); this.updateSystemPlayback(); },
@@ -167,6 +172,13 @@ struct Index {
     try {
       this.context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       this.backgroundLease.open(this.context,(): void => this.video.pause());
+      this.media.setCastEvents({
+        started:(device: string): void => this.castStarted(device),
+        stopped:(seconds: number): void => this.castStopped(seconds),
+        state:(playing: boolean): void => { this.castPlaying = playing; if (this.casting) this.media.update(playing,this.castElapsed,this.playbackRate).catch((): void => {}); },
+        position:(seconds: number): void => this.castPosition(seconds),
+        error:(message: string): void => this.notice(message)
+      });
       this.nativeWindow = await window.getLastWindow(this.context);
       this.originalOrientation = this.nativeWindow.getPreferredOrientation();
       await this.store.open(this.context);
@@ -218,7 +230,10 @@ struct Index {
   }
   onOpenPlayer(): void {
     if (this.ready && this.foreground && this.openPlayerRequest > 0) {
-      this.openPlayerRequest = 0; this.nav.clear(); this.changeTab(1);
+      this.openPlayerRequest = 0;
+      // Do not reset an already visible player page: clearing the stack is what made PiP restores look like a refresh.
+      if (this.nav.size() > 0) this.nav.clear();
+      if (this.tab !== 1) this.changeTab(1);
     }
   }
   onShared(): void {
@@ -341,6 +356,10 @@ struct Index {
   }
   async resolve(): Promise<void> {
     const serial = ++this.resolveSerial;
+    if (this.casting) {
+      this.casting = false; this.castDevice = ''; this.castPlaying = false;
+      this.media.stopCast(false).catch((): void => {});
+    }
     this.adFilter.cancel();
     this.savePosition(true); this.recordReady = false;
     this.webPlayer.exitFullscreen(); this.webUrl = '';
@@ -480,14 +499,47 @@ struct Index {
       changed:(active: boolean): void => {
         this.pipActive = active; this.keepAwake(this.playing && this.foreground && this.tab === 1 && !active); this.syncBackground();
       },
-      restore:(): void => { AppStorage.setOrCreate('openPlayerRequest',Date.now()); },
+      restore:(): void => { PlaybackDiagnostics.record(`PiP restore tab=${this.tab}`); if (!this.disposed && this.tab !== 1) this.changeTab(1); },
       failed:(): void => { if (!this.foreground && !this.backgroundPlayback) this.video.pause(); this.notice('系统小窗暂不可用'); }
     },this.getUIContext());
     this.syncPip();
   }
   syncPip(): void {
-    this.pip.configure(this.autoPip && this.backgroundPlayback,!!this.mediaUrl && !this.webUrl && this.tab === 1,
+    this.pip.configure(this.autoPip && this.backgroundPlayback,!!this.mediaUrl && !this.webUrl && !this.casting && this.tab === 1,
       this.playing,this.currentIndex > 0,this.currentIndex >= 0 && this.currentIndex+1 < this.currentEpisodes.length);
+  }
+  castStarted(device: string): void {
+    this.casting = true; this.castDevice = device; this.castElapsed = this.elapsed; this.castPlaying = this.playing;
+    PlaybackDiagnostics.record(`cast started device=${device} at=${this.elapsed.toFixed(1)}`);
+    if (this.playing) this.video.pause();
+    this.syncPip();
+  }
+  castStopped(seconds: number): void {
+    if (this.disposed) return;
+    const resume = this.castPlaying;
+    this.casting = false; this.castDevice = ''; this.castPlaying = false;
+    this.castElapsed = seconds; this.elapsed = seconds;
+    PlaybackDiagnostics.record(`cast stopped at=${seconds.toFixed(1)} resume=${resume}`);
+    if (this.mediaUrl && !this.webUrl && this.nativePlayerMounted) {
+      this.video.setCurrentTime(seconds);
+      if (resume) this.video.start();
+    }
+    this.syncPip();
+  }
+  castPosition(seconds: number): void {
+    this.castElapsed = seconds;
+    if (this.casting) { this.elapsed = seconds; this.savePosition(); }
+  }
+  toggleCast(): void {
+    if (!this.casting) return;
+    const next = !this.castPlaying; this.castPlaying = next;
+    (next ? this.media.castPlay() : this.media.castPause()).catch((): void => {
+      this.castPlaying = !next; this.notice('投屏控制未送达');
+    });
+  }
+  stopCasting(): void {
+    if (!this.casting) return;
+    this.media.stopCast().catch((): void => this.notice('结束投屏失败，请稍后重试'));
   }
   async startSmallWindow(): Promise<void> {
     try {
@@ -624,7 +676,8 @@ struct Index {
   @Builder
   tabLabel(label: string, index: number) {
     Row() {
-      SymbolGlyph(this.tabSymbol(index)).fontSize(26).fontWeight(FontWeight.Bold).width(32).height(32)
+      // The glyph's ink sits about 4vp below the bar centre; lift it to match the prototype.
+      SymbolGlyph(this.tabSymbol(index)).fontSize(26).fontWeight(FontWeight.Bold).width(32).height(32).offset({y:-4})
         .fontColor([this.tab === index ? EMPHASIS : MUTED])
     }.height(56).justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center).width('100%')
       .accessibilityText(label).accessibilityDescription(this.tab === index ? '已选中' : '切换栏目')
@@ -769,7 +822,9 @@ struct Index {
           if (this.nativePlayerMounted) {
             NativePlayer({controller:this.video,surface:this.videoSurface,title:this.currentMovie.title,subtitle:this.currentEpisode.title,status:this.adStatus,error:this.playerError,
               playing:this.playing,buffering:this.resolving || this.buffering,elapsed:this.elapsed,duration:this.duration,fullscreen:this.fullscreen,reduceMotion:this.reduceMotion,active:this.tab === 1,
-              inPip:this.pipActive,systemRate:this.playbackRate,onSmallWindow:(): void => { this.startSmallWindow(); },onRestoreWindow:(): void => this.restoreSmallWindow(),
+              inPip:this.pipActive,systemRate:this.playbackRate,castReady:this.sessionReady,casting:this.casting,castDevice:this.castDevice,castElapsed:this.castElapsed,castPlaying:this.castPlaying,
+              onCastToggle:(): void => this.toggleCast(),onCastStop:(): void => this.stopCasting(),
+              onSmallWindow:(): void => { this.startSmallWindow(); },onRestoreWindow:(): void => this.restoreSmallWindow(),
               episodeNames:this.currentEpisodes.map((episode: Episode,index: number): string => episodeLabel(episode,this.currentMovie.title,index)),episodeIndex:this.currentIndex,
               onFullscreen:(value: boolean): void => this.nativeFullscreenChanged(value),onRetry:(): void => {
                 this.resumeAt = this.recordReady ? originalTime(this.elapsed,this.adRanges) : this.loadResumeOriginal; this.resolve();
@@ -925,21 +980,15 @@ struct Index {
   settingsPage() {
     Scroll(this.settingsScroll) {
       Column({space:14}) {
-        Column({space:12}) {
-          Text('WTV 站点同步').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-          TextInput({text:this.site,placeholder:'https://你的站点'}).enableKeyboardOnFocus(false).type(InputType.URL).onChange((value: string): void => { this.site = value; }).backgroundColor(BG)
-          Button(this.syncing ? '同步中…' : '同步搜索源与线路').width('100%').backgroundColor(ACCENT).enabled(!this.syncing && this.ready).onClick((): void => { this.syncSite(); })
-        }.padding(18).backgroundColor(CARD).borderRadius(24)
         Row() {
-          Text('搜索接口').fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
-          Button('＋ 添加').fontSize(13).fontColor(ACCENT).backgroundColor(CARD).onClick((): void => this.edit('search'))
-        }.width('100%').margin({top:10})
-        ForEach(this.sources,(item: Endpoint) => { this.endpointCard(item,'search') },(item: Endpoint): string => item.id)
-        Row() {
-          Text('解析接口').fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
-          Button('＋ 添加').fontSize(13).fontColor(ACCENT).backgroundColor(CARD).onClick((): void => this.edit('parser'))
-        }.width('100%').margin({top:10})
-        ForEach(this.parsers,(item: Endpoint) => { this.endpointCard(item,'parser') },(item: Endpoint): string => item.id)
+          Column({space:6}) {
+            Text('接口设置').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+            Text(`${this.sources.length} 个搜索源 · ${this.parsers.length} 个解析与网页线路`).fontSize(12).fontColor(MUTED).width('100%')
+          }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+          Text('›').fontSize(26).fontColor(ACCENT)
+        }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24)
+          .onClick((): void => { this.nav.pushPath({name:'endpoints'},!this.reduceMotion); })
+          .stateStyles({pressed:{opacity:0.82}}).accessibilityText('接口设置，进入二级页面')
         Row() {
           Text('后台播放').fontSize(15).fontColor(INK).layoutWeight(1)
           Toggle({type:ToggleType.Switch,isOn:this.backgroundPlayback}).selectedColor(ACCENT).onChange((value: boolean): void => this.setBackgroundPlayback(value))
@@ -974,7 +1023,7 @@ struct Index {
             .fontSize(12).fontColor(MUTED).lineHeight(19).width('100%')
         }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24)
         Column({space:8}) {
-          Text('WTV  1.7.5 · MPV').fontSize(15).fontWeight(FontWeight.Medium).fontColor(INK)
+          Text('WTV  1.7.6 · MPV').fontSize(15).fontWeight(FontWeight.Medium).fontColor(INK)
           Text('搜索、详情与片单使用鸿蒙原生页面。直链由原生播放器播放，网页线路由 ArkWeb 播放；部分验证和私有协议取决于线路本身。').fontSize(12).fontColor(MUTED).lineHeight(19)
         }.padding(18).width('100%')
         Column({space:12}) {
@@ -992,6 +1041,39 @@ struct Index {
         }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24)
       }.width('100%').padding({left:20,right:20,top:this.getUIContext().px2vp(this.safeTopPx)+64,bottom:this.getUIContext().px2vp(this.safeBottomPx)+88}).constraintSize({maxWidth:760})
     }.width('100%').height('100%').scrollBar(BarState.Off).edgeEffect(EdgeEffect.Spring)
+  }
+  @Builder
+  endpointsPage() {
+    HdsNavDestination() {
+      Scroll() {
+        Column({space:14}) {
+          Row({space:10}) {
+            Button({type:ButtonType.Circle}) { Image($r('app.media.nav_back')).width(22).height(22) }
+              .width(40).height(40).backgroundColor(FIELD).accessibilityText('返回')
+              .onClick((): void => { this.nav.pop(!this.reduceMotion); })
+            Text('接口设置').fontSize(21).fontWeight(FontWeight.Bold).fontColor(INK)
+          }.width('100%').margin({bottom:6})
+          Column({space:12}) {
+            Text('WTV 站点同步').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+            TextInput({text:this.site,placeholder:'https://你的站点'}).enableKeyboardOnFocus(false).type(InputType.URL).onChange((value: string): void => { this.site = value; }).backgroundColor(BG)
+            Button(this.syncing ? '同步中…' : '同步搜索源与线路').width('100%').backgroundColor(ACCENT).enabled(!this.syncing && this.ready).onClick((): void => { this.syncSite(); })
+          }.padding(18).backgroundColor(CARD).borderRadius(24)
+          Row() {
+            Text('搜索接口').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
+            Button('＋ 添加').fontSize(13).fontColor(ACCENT).backgroundColor(CARD).onClick((): void => this.edit('search'))
+          }.width('100%').margin({top:4})
+          ForEach(this.sources,(item: Endpoint) => { this.endpointCard(item,'search') },(item: Endpoint): string => item.id)
+          Row() {
+            Text('解析接口').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
+            Button('＋ 添加').fontSize(13).fontColor(ACCENT).backgroundColor(CARD).onClick((): void => this.edit('parser'))
+          }.width('100%').margin({top:10})
+          ForEach(this.parsers,(item: Endpoint) => { this.endpointCard(item,'parser') },(item: Endpoint): string => item.id)
+        }.padding({left:20,right:20,top:this.getUIContext().px2vp(this.safeTopPx)+8,bottom:this.getUIContext().px2vp(this.safeBottomPx)+24})
+          .width('100%').constraintSize({maxWidth:760})
+      }.height('100%').width('100%').scrollBar(BarState.Off).edgeEffect(EdgeEffect.Spring)
+    }.hideTitleBar(true).backgroundColor(BG)
+      .systemTransition(this.reduceMotion ? NavigationSystemTransitionType.NONE : NavigationSystemTransitionType.CONTENT)
+      .onBackPressed((): boolean => false)
   }
   @Builder
   endpointEditor() {
@@ -1028,6 +1110,7 @@ struct Index {
   @Builder
   destination(name: string) {
     if (name === 'detail') { this.detailPage() }
+    else if (name === 'endpoints') { this.endpointsPage() }
   }
   build() {
     WithTheme({theme:APP_THEME}) {
