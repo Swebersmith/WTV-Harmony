@@ -62,7 +62,7 @@
 
 ## 安装
 
-在 [Releases](https://github.com/Swebersmith/WTV-Harmony/releases) 下载已发布的未签名 HAP；1.7.6 当前只提交源码，未上传安装包，需要时用本机脚本构建。
+在 [Releases](https://github.com/Swebersmith/WTV-Harmony/releases/tag/v1.7.6) 下载 `WTV-Harmony-1.7.6-unsigned.hap`。
 
 发布附件为**未签名调试包**，需要使用自己的有效鸿蒙签名身份签名后安装。升级时保持相同包名与签名身份，以便覆盖安装并保留本地数据。
 
