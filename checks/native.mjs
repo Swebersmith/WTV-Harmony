@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import vm from 'node:vm';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -21,6 +22,16 @@ const http = {
   RequestMethod:{GET:'GET',POST:'POST'},HttpDataType:{STRING:0},
   createHttp:() => ({request:async (url,options) => { requests.push({url,options}); return response; },destroy:() => {destroyed++;}})
 };
+let diagnosticsWriteFailure=false,pickerPaths=[],faultFixturePath;
+const crashWatchers=new Map();
+const hiAppEventApi={domain:{OS:'OS'},event:{APP_CRASH:'APP_CRASH',APP_FREEZE:'APP_FREEZE'},
+  addWatcher(watcher){crashWatchers.set(watcher.name,watcher);return {};}};
+const fileApi={OpenMode:{WRITE_ONLY:fs.constants.O_WRONLY,CREATE:fs.constants.O_CREAT,APPEND:fs.constants.O_APPEND,TRUNC:fs.constants.O_TRUNC},
+  accessSync:file=>fs.existsSync(file),mkdirSync:file=>fs.mkdirSync(file),statSync:file=>fs.statSync(file),renameSync:(from,to)=>fs.renameSync(path.normalize(from),path.normalize(to)),
+  openSync:(file,flags)=>{if(diagnosticsWriteFailure)throw Error('disk full');return {fd:fs.openSync(file,flags)};},writeSync:(fd,text)=>fs.writeSync(fd,text),
+  closeSync:file=>fs.closeSync(typeof file==='number'?file:file.fd),unlinkSync:file=>fs.unlinkSync(file),
+  readTextSync:(file,options)=>fs.readFileSync(file.startsWith('/data/storage/el2/log/hiappevent/')&&faultFixturePath?faultFixturePath:file).subarray(0,options?.length).toString('utf8')};
+const pickerApi={DocumentViewPicker:class{constructor(context){this.context=context;}async save(options){return pickerPaths;}}};
 const windowApi = {Orientation:{UNSPECIFIED:0},AvoidAreaType:{TYPE_SYSTEM:0,TYPE_CUTOUT:1,TYPE_NAVIGATION_INDICATOR:2}};
 const deviceVolume = {level:6,min:0,max:20,listeners:new Set(),fail:false,
   getVolumeByStream(usage){assert.equal(usage,'music');if(this.fail) throw Error('unavailable');return this.level;},
@@ -86,6 +97,7 @@ class FakeMpv {
   stream={position:stream(),duration:stream(),playing:stream(),buffering:stream(),eof:stream()};
   observers=[];properties=new Map();path='';played=0;destroyed=0;stopped=0;
   native={addEventObserver:observer=>this.observers.push(observer),removeEventObserver:observer=>{this.observers=this.observers.filter(x=>x!==observer);},
+    addLogObserver:observer=>this.logObserver=observer,removeLogObserver:observer=>{if(this.logObserver===observer)this.logObserver=undefined;},
     command:args=>{this.lastCommand=args;if(args[0]==='seek'&&!this.commandError)this.currentTime=Number(args[1]);return this.commandError||0;},
     setProperty:(key,value)=>this.properties.set(key,value),getPropertyString:()=>this.path,getProperty:()=>5};
   constructor(config){this.config=config;this.stream.position.listen(n=>this.state.position=n);nativePlayers.push(this);}
@@ -117,7 +129,7 @@ function load(name) {
   const kits={'@kit.NetworkKit':{http},'@kit.ArkUI':{window:windowApi,PiPWindow:pipApi,typeNode:nodeApi,NodeController:FakeNodeController,FrameNode:FakeFrameNode},'@kit.AudioKit':{audio:audioApi},
     '@kit.AbilityKit':abilityApi,'@kit.BackgroundTasksKit':{backgroundTaskManager:backgroundApi},'@kit.AVSessionKit':{avSession:sessionApi},
     '@kit.ArkData':{preferences:{}},'@kit.ShareKit':{},'@kit.UIDesignKit':{HdsTabsController:class{changeIndex(){}},hdsMaterial:{MaterialType:{ADAPTIVE:0}}},
-    '@kit.BasicServicesKit':{deviceInfo},'@kit.PerformanceAnalysisKit':{hilog:{info(){}}}};
+    '@kit.BasicServicesKit':{deviceInfo},'@kit.PerformanceAnalysisKit':{hilog:{info(){}},hiAppEvent:hiAppEventApi},'@kit.CoreFileKit':{fileIo:fileApi,picker:pickerApi}};
   const localRequire = id => kits[id] || (id.endsWith('components/WebPlayer') ? {WebPlayerHandle:class{exitFullscreen(){return false;}}} :
     id === '@mpv-ohos/mpv-arkts' ? mpvApi : load(path.posix.normalize(path.posix.join(path.posix.dirname(name),id))));
   vm.runInThisContext(`(function(require,module,exports){${outputText}\n})`)(localRequire,module,module.exports);
@@ -662,4 +674,54 @@ test('the video node remounts in a new page host and can be restored if PiP is i
   const surface=new VideoSurface(new NativePlayback()),first=surface.makeNode({}),node=surface.getContent({});
   surface.setInPip(true);assert.equal(node.getParent(),null);const next=surface.makeNode({});assert.equal(next.children.length,0);
   surface.setInPip(false);assert.equal(node.getParent(),next);assert.equal(first.children.length,0);surface.dispose();
+});
+
+function loggerFixture(t){
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'wtv-diagnostics-'));
+  t.after(()=>{diagnosticsWriteFailure=false;pickerPaths=[];faultFixturePath=undefined;assert.equal(path.dirname(path.resolve(dir)),path.resolve(os.tmpdir()));assert.ok(path.basename(dir).startsWith('wtv-diagnostics-'));fs.rmSync(dir,{recursive:true,force:true});});
+  const fresh=()=>{loaded.delete('services/PlaybackDiagnostics');return load('services/PlaybackDiagnostics').PlaybackDiagnostics;};
+  const launch={lastExitReason:0,lastExitMessage:''};const logger=fresh();logger.start({filesDir:dir},launch);
+  return {dir,logger,fresh,launch};
+}
+test('diagnostic breadcrumbs survive process restart and retain the last crash exit reason',t=>{
+  const {dir,logger,fresh}=loggerFixture(t);logger.record('MPV constructor begin');
+  const next=fresh();next.start({filesDir:dir},{lastExitReason:2,lastExitMessage:'NativeCrash SIGSEGV'});
+  const report=next.report();assert.match(report,/MPV constructor begin/);assert.match(report,/last exit reason=2/);assert.match(report,/NativeCrash SIGSEGV/);assert.match(report,/previous.log/);
+});
+test('official crash watcher preserves both native and ArkTS fault summaries across another restart',t=>{
+  const {dir,logger,fresh}=loggerFixture(t),watcher=crashWatchers.get('WTVFaultWatcher');
+  assert.deepEqual(watcher.appEventFilters[0].names,['APP_CRASH','APP_FREEZE']);
+  watcher.onReceive('OS',[{appEventInfos:[{name:'APP_CRASH',params:{crash_type:'NativeCrash',time:1,reason:'SIGSEGV native decoder'}},{name:'APP_CRASH',params:{crash_type:'JsError',time:2,summary:'Error: node invalid at VideoSurface.ets:20'}}]}]);
+  const next=fresh();next.start({filesDir:dir},{lastExitReason:2,lastExitMessage:'crash'});
+  const report=next.report();assert.match(report,/SIGSEGV native decoder/);assert.match(report,/VideoSurface.ets:20/);assert.match(report,/fault-previous.log/);
+});
+test('unreadable system fault attachments retain the event summary and do not crash the app',t=>{
+  const {logger}=loggerFixture(t);crashWatchers.get('WTVFaultWatcher').onReceive('OS',[{appEventInfos:[{name:'APP_CRASH',params:{summary:'Native failure',external_log:['/data/storage/el2/log/hiappevent/missing.log','/etc/private','/data/storage/el2/log/hiappevent/../private']}}]}]);
+  const report=logger.report();assert.match(report,/Native failure/);assert.match(report,/系统故障文件暂不可读/);
+});
+test('persistent logs redact media URLs and credentials, bound disk rotation, and clear only their own files',t=>{
+  const {dir,logger}=loggerFixture(t);fs.writeFileSync(path.join(dir,'favorites.json'),'keep');
+  logger.record('request https://example.com/video?token=secret token=hello password=world api_key=abc Authorization: Bearer xyz');
+  let report=logger.report();for(const secret of ['example.com','hello','world','abc','xyz'])assert.ok(!report.includes(secret));
+  for(let i=0;i<100;i++)logger.record('x'.repeat(4096));
+  for(const name of ['current.log','previous.log'])assert.ok(fs.statSync(path.join(dir,'diagnostics',name)).size<80000);
+  logger.clear();assert.ok(!logger.report().includes('x'.repeat(50)));assert.equal(fs.readFileSync(path.join(dir,'favorites.json'),'utf8'),'keep');
+});
+test('disk failures do not throw from logging and keep an explicit in-memory fallback',t=>{
+  const {logger}=loggerFixture(t);diagnosticsWriteFailure=true;assert.doesNotThrow(()=>logger.record('before failing decoder'));
+  assert.match(logger.report(),/before failing decoder/);assert.match(logger.report(),/写入失败/);
+});
+test('TXT export writes a real report to the selected file and cancellation creates no file',async t=>{
+  const {dir,logger}=loggerFixture(t);logger.record('export breadcrumb');pickerPaths=[];assert.equal(await logger.exportFile({filesDir:dir}),false);
+  const destination=path.join(dir,'export.txt');assert.equal(fs.existsSync(destination),false);pickerPaths=[destination];
+  assert.equal(await logger.exportFile({filesDir:dir}),true);assert.match(fs.readFileSync(destination,'utf8'),/export breadcrumb/);
+});
+
+test('system-provided native fault attachments are copied with stack frames, bounded, redacted and retained after restart',t=>{
+  const {dir,logger,fresh}=loggerFixture(t);faultFixturePath=path.join(dir,'system-native.log');
+  fs.writeFileSync(faultFixturePath,'Reason: SIGSEGV\n#00 libmpv.so + 0x1234\n#01 libmpv_wrapper.so + 0x4321\nhttps://private.example/video?token=abcd\n'+'frame\n'.repeat(50000));
+  crashWatchers.get('WTVFaultWatcher').onReceive('OS',[{appEventInfos:[{name:'APP_CRASH',params:{crash_type:'NativeCrash',external_log:['/data/storage/el2/log/hiappevent/APP_CRASH_1.log']}}]}]);
+  assert.ok(fs.statSync(path.join(dir,'diagnostics','fault.log')).size<150000);
+  const next=fresh();next.start({filesDir:dir},{lastExitReason:2,lastExitMessage:'native crash'});const report=next.report();
+  assert.match(report,/#00 libmpv.so/);assert.match(report,/#01 libmpv_wrapper.so/);assert.ok(!report.includes('private.example'));assert.ok(!report.includes('abcd'));
 });

@@ -3,6 +3,7 @@
  */
 
 #include <thread>
+#include <charconv>
 
 #include "globals.h"
 #include "node.h"
@@ -72,7 +73,12 @@ void NativePlayer::attach_surface(const std::string& surface) const
         return;
     }
 
-    const uint64_t surface_id = std::stoull(surface);
+    uint64_t surface_id = 0;
+    const auto parsed = std::from_chars(surface.data(), surface.data() + surface.size(), surface_id);
+    if (parsed.ec != std::errc() || parsed.ptr != surface.data() + surface.size() || surface_id == 0) {
+        log_e("[napi:attach_surface] invalid numeric surface id");
+        return;
+    }
 
     int64_t wid = 0;
     memcpy(&wid, &surface_id, sizeof(surface_id));

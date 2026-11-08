@@ -40,6 +40,6 @@ VideoSurface 作为 NodeController，创建 typeNode XComponent；主页面通�
 - 开启后台播放与自动小窗，返回桌面确认系统启动小窗；检查系统画中画开关。
 - 控制中心、锁屏卡片分别验证暂停/播放、快进/快退和进度拖动；返回页面确认画面实际位于新位置。
 - 连续拖动、暂停后拖动、切集、网页线路切换和全屏还原分别复测。
-- 若失败，在设置点击「复制播放诊断」，查看 PiP 状态、错误码、system seek、MPV result 与 seek confirmed / timeout。日志只留在本次进程内，不含媒体地址和接口凭据。
+- 若失败，在设置点击「错误与播放日志」中的复制或导出，查看 PiP 状态、错误码、system seek、MPV result 与 seek confirmed / timeout。日志写入应用私有文件并轮换，重启后仍可导出，遮盖 HTTP(S) 链接及常见凭据。HiAppEvent 提供的崩溃堆栈会在系统投递后保存。
 
 截至本版本构建，开发环境没有可用的 HDC 真机连接。API 编译和逻辑检查已完成，以上系统 UI 与解码连续性仍需连接设备验证。

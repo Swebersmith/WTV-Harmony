@@ -1,4 +1,4 @@
-import { Player, PlayerConfig, Media, MpvLogLevel, EventObserver, MpvEvent } from '@mpv-ohos/mpv-arkts';
+import { Player, PlayerConfig, Media, MpvLogLevel, EventObserver, LogObserver, MpvEvent } from '@mpv-ohos/mpv-arkts';
 import { PlaybackDiagnostics } from './PlaybackDiagnostics';
 
 interface SourceRequest { url: string; hls: boolean; resume: number; autoplay: boolean; }
@@ -17,7 +17,7 @@ export const NATIVE_RATES: number[] = [0.75,1,1.25,1.5,1.75,2];
 
 // Native OHOS libmpv, FFmpeg and OHCodec. One core owns one surface at a time.
 // A load is accepted only after FILE_LOADED reports the currently requested path.
-export class NativePlayback extends XComponentController implements EventObserver {
+export class NativePlayback extends XComponentController implements EventObserver, LogObserver {
   private player?: Player;
   private surface: string = '';
   private seekTarget?: number;
@@ -38,11 +38,12 @@ export class NativePlayback extends XComponentController implements EventObserve
   getRate(): number { return this.desiredRate; }
   getVolume(): number { return this.desiredVolume; }
   listen(events: PlaybackEvents): void { this.events = events; }
-  onSurfaceCreated(surface: string): void { this.attach(surface); }
+  onSurfaceCreated(surface: string): void { PlaybackDiagnostics.record(`surface created id=${surface}`); this.attach(surface); }
   onSurfaceChanged(surface: string, rect: SurfaceRect): void {
     if (surface === this.surface) this.resizeSurface(rect.surfaceWidth,rect.surfaceHeight);
   }
   onSurfaceDestroyed(surface: string): void {
+    PlaybackDiagnostics.record(`surface destroyed id=${surface}`);
     if (surface !== this.surface) return;
     if (this.keepAlive && this.player && this.request) {
       this.surface = '';
@@ -63,6 +64,7 @@ export class NativePlayback extends XComponentController implements EventObserve
     return [1920,1080];
   }
   attach(surface: string): void {
+    PlaybackDiagnostics.record(`MPV attach begin surface=${surface} retained=${this.keepAlive}`);
     if (this.surface === surface && this.player) return;
     if (this.player && this.keepAlive && this.request && !this.failed) {
       this.surface = surface;
@@ -77,13 +79,17 @@ export class NativePlayback extends XComponentController implements EventObserve
     if (this.player) this.detach();
     this.surface = surface;
     try {
+      PlaybackDiagnostics.record('MPV constructor begin');
       this.player = new Player(new PlayerConfig({vo:'gpu',gpuContext:'ohos',hwdec:true,osc:false,osd:false,logLevel:MpvLogLevel.Error}));
+      PlaybackDiagnostics.record('MPV constructor complete');
       const p = this.player;
-      p.native.addEventObserver(this);
+      p.native.addEventObserver(this); p.native.addLogObserver(this);
       p.native.setProperty('demuxer-max-bytes','64MiB');
       p.native.setProperty('demuxer-max-back-bytes','16MiB');
       p.native.setProperty('network-timeout',15);
+      PlaybackDiagnostics.record('MPV native surface bind begin');
       p.onSurfaceCreated(surface);
+      PlaybackDiagnostics.record('MPV native surface bind complete');
       this.applyVideoMode();
       p.stream.position.listen((seconds: number): void => {
         if (!this.accepts(p) || !Number.isFinite(seconds) || seconds < 0) return;
@@ -108,7 +114,7 @@ export class NativePlayback extends XComponentController implements EventObserve
         this.completed = true; this.events?.playing(false); this.events?.buffering(false); this.events?.ended();
       });
       if (this.request) this.open();
-    } catch { this.fail(-1); }
+    } catch (error) { PlaybackDiagnostics.record(`MPV attach exception ${String(error)}`); this.fail(-1); }
   }
   resize(width: number, height: number): void {
     this.resizeSurface(width,height);
@@ -127,7 +133,7 @@ export class NativePlayback extends XComponentController implements EventObserve
     ++this.revision; clearTimeout(this.timeout); this.loaded = false; this.surface = '';
     const old = this.player; this.player = undefined;
     if (old) {
-      try { old.native.removeEventObserver(this); old.onSurfaceDestroyed(''); old.destroy(); } catch {}
+      try { old.native.removeEventObserver(this); old.native.removeLogObserver(this); old.onSurfaceDestroyed(''); old.destroy(); } catch {}
     }
   }
   clear(): void {
@@ -136,6 +142,7 @@ export class NativePlayback extends XComponentController implements EventObserve
     try { this.player?.stop(); } catch {}
   }
   load(url: string, hls: boolean, resume: number = 0, autoplay: boolean = true): void {
+    PlaybackDiagnostics.record(`media load hls=${hls} resume=${resume} autoplay=${autoplay}`);
     this.clearSeek(); this.coreBuffering = false;
     this.request = {url,hls,resume,autoplay}; this.current = resume;
     ++this.revision; this.loaded = false; this.failed = false; this.completed = false; clearTimeout(this.timeout);
@@ -147,14 +154,20 @@ export class NativePlayback extends XComponentController implements EventObserve
     this.events?.buffering(true);
     this.timeout = setTimeout((): void => { if (revision === this.revision) this.fail(-2); },30000);
     try {
-      this.player.open(new Media(request.url,{start:request.resume,httpHeaders:new Map<string,string>([['User-Agent','WTV-Harmony/1.7.2']])}),request.autoplay);
+      PlaybackDiagnostics.record('MPV open begin');
+      this.player.open(new Media(request.url,{start:request.resume,httpHeaders:new Map<string,string>([['User-Agent','WTV-Harmony/1.7.3']])}),request.autoplay);
+      PlaybackDiagnostics.record('MPV open returned');
       this.player.setSpeed(this.desiredRate); this.player.setVolume(this.desiredVolume*100);
     } catch { this.fail(-1); }
   }
   onPropertyChanged(_property: string, _value?: string | number | boolean): void {}
+  onLogMessage(prefix: string, level: string, message: string): void {
+    if (level === 'error' || level === 'fatal') PlaybackDiagnostics.record(`MPV ${level} ${prefix}: ${message}`);
+  }
   onEvent(id: number, _name: string, detail?: string): void {
     if (!this.player || !this.request || this.failed) return;
     if (id === MpvEvent.MPV_EVENT_FILE_LOADED) {
+      PlaybackDiagnostics.record('MPV file loaded event');
       try { if (this.player.native.getPropertyString('path') !== this.request.url) return; } catch { return; }
       clearTimeout(this.timeout); this.loaded = true;
       this.events?.prepared(Math.max(0,this.player.state.duration)); this.events?.buffering(false);
@@ -171,6 +184,7 @@ export class NativePlayback extends XComponentController implements EventObserve
     }
   }
   private fail(code: number): void {
+    PlaybackDiagnostics.record(`MPV failed code=${code}`);
     if (this.failed) return;
     this.clearSeek();
     this.failed = true; this.loaded = false; clearTimeout(this.timeout);

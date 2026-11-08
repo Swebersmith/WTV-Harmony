@@ -1,4 +1,5 @@
 import { NodeController, FrameNode, typeNode, UIContext } from '@kit.ArkUI';
+import { PlaybackDiagnostics } from './PlaybackDiagnostics';
 
 // Follow the official typeNode preview/PiP pattern: move one node, not the MPV output.
 export class VideoSurface extends NodeController {
@@ -8,16 +9,19 @@ export class VideoSurface extends NodeController {
   private inPip: boolean = false;
   constructor(controller: XComponentController) { super(); this.controller = controller; }
   getContent(context: UIContext): typeNode.XComponent {
+    PlaybackDiagnostics.record(`video node get existing=${!!this.content}`);
     if (!this.content) this.content = typeNode.createNode(context,'XComponent',{
       type:XComponentType.SURFACE,controller:this.controller
     });
     return this.content;
   }
   makeNode(context: UIContext): FrameNode {
+    PlaybackDiagnostics.record('video page node create begin');
     this.host = new FrameNode(context);
     this.host.commonAttribute.width('100%').height('100%');
     this.getContent(context).commonAttribute.width('100%').height('100%');
     if (!this.inPip) this.attachToPage();
+    PlaybackDiagnostics.record('video page node create complete');
     return this.host;
   }
   setInPip(value: boolean): void {

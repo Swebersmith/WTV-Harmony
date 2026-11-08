@@ -4,7 +4,7 @@
 
 使用 ArkTS / ArkUI 构建的鸿蒙原生影视搜索与播放应用。
 
-当前版本 **1.7.2 开发预览**：HarmonyOS API 26，最低 API 23，原生播放库支持 **ARM64**。包名为 `io.webber.wtv`。
+当前版本 **1.7.3 开发预览**：HarmonyOS API 26，最低 API 23，原生播放库支持 **ARM64**。包名为 `io.webber.wtv`。
 
 [下载 HAP 与源码](https://github.com/Swebersmith/WTV-Harmony/releases) · [更新记录](CHANGELOG.md) · [第三方许可](THIRD_PARTY_NOTICES.md)
 
@@ -48,11 +48,15 @@
 
 后台仅放音时关闭视频渲染，恢复前台或进入小窗后恢复视频；表面丢失与重新绑定不销毁正在使用的内核。暂停和后台任务被系统撤销时，同步更新系统卡片。网页型线路由第三方网页掌管媒体，当前不接入本应用的 MPV 系统播控、后台及小窗流程。
 
-设置页「复制播放诊断」可复制本次运行最近 100 条播控与小窗事件，包含系统 API 错误码、生命周期及原生跳转结果，不包含媒体 URL 或接口凭据。复现问题后可据此核对真实系统回调。
+设置页「错误与播放日志」支持导出 TXT、复制和清空。启动时接入官方 [HiAppEvent 崩溃订阅](https://developer.huawei.com/consumer/cn/doc/HarmonyOS-Guides/hiappevent-watcher-crash-events-arkts/)，下次启动时接收系统提供的 ArkTS / Native 崩溃和冻屏事件，复制系统日志附件中的堆栈；同时记录上次退出原因、视频节点创建、MPV 初始化、表面绑定、打开媒体和错误级内核日志。播放关键步骤同步写入应用私有文件，重启后仍可导出。
+
+复现方法：安装新版后播放一次；发生闪退则重新打开，进入「设置 → 错误与播放日志 → 导出错误日志 TXT」并选择保存位置。若系统尚未投递堆栈，可稍等后再次导出；即使附件不可读也会保留事件摘要与播放步骤。系统只会提供其实际保留的故障记录，本应用不能捕获进程终止后尚未生成的堆栈。
+
+日志只保存在本机，不自动上传；遮盖 HTTP(S) 链接与常见 token / password / Authorization 字段。最多保留两个约 64 KiB 的步骤文件及两份截取到 131072 字符的故障文件，不会无限增长；清空仅删除本应用的诊断副本。系统日志可能包含设备运行信息，导出后可自行查看。原生闪退的原因尚未确认，本版用于收集真实故障依据。
 
 ## 安装
 
-在 [Releases](https://github.com/Swebersmith/WTV-Harmony/releases) 下载 `WTV-Harmony-1.7.2-unsigned.hap`。
+在 [Releases](https://github.com/Swebersmith/WTV-Harmony/releases) 下载 `WTV-Harmony-1.7.3-unsigned.hap`。
 
 发布附件为**未签名调试包**，需要使用自己的有效鸿蒙签名身份签名后安装。升级时保持相同包名与签名身份，以便覆盖安装并保留本地数据。
 
@@ -76,7 +80,7 @@ Windows PowerShell 示例，建议将工具与构建目录放在英文路径：
 
 ## 检查
 
-使用 SDK 中的 TypeScript 转译器运行 67 项协议、播放生命周期、音量、亮度、后台任务、系统会话和画中画逻辑检查：
+使用 SDK 中的 TypeScript 转译器运行 74 项协议、播放生命周期、音量、亮度、后台任务、系统会话和画中画逻辑检查：
 
 ```powershell
 $env:ARKTS_TYPESCRIPT = 'C:\Tools\command-line-tools\sdk\default\openharmony\ets\build-tools\ets-loader\node_modules\typescript'
@@ -85,7 +89,7 @@ node --test .\checks\native.mjs
 
 也可运行 `npm ci --ignore-scripts` 与 `npm test`，使用固定版本的标准 TypeScript 转译器执行同一组逻辑检查。测试中的 HTTP、音量、窗口、AVSession、后台任务、PiP 和 MPV 运行时使用替身；页面事件处理器只验证逻辑，不模拟渲染。
 
-**验证范围：** API 26 编译、ARM64 原生库和 HAP 结构检查已通过。1.7.2 的控制中心卡片、锁屏卡片、实况窗、锁屏后台音频、系统 PiP 节点迁移和恢复尚未连接真机验证，因此当前发布标记为开发预览。逻辑替身不能验证系统 UI、系统后台调度或实际解码连续性。
+**验证范围：** API 26 编译、ARM64 原生库和 HAP 结构检查已通过。1.7.3 的控制中心卡片、锁屏卡片、实况窗、锁屏后台音频、系统 PiP 节点迁移和恢复尚未连接真机验证，因此当前发布标记为开发预览。逻辑替身不能验证系统 UI、系统后台调度或实际解码连续性。
 
 ## 许可与来源
 

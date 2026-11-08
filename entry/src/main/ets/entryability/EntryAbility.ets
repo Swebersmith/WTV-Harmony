@@ -1,10 +1,13 @@
 import { UIAbility, Want, AbilityConstant, Configuration, ConfigurationConstant } from '@kit.AbilityKit';
 import { window } from '@kit.ArkUI';
 import { applySystemBars, updateAvoidAreas } from '../design/WindowStyle';
+import { PlaybackDiagnostics } from '../services/PlaybackDiagnostics';
 
 export default class EntryAbility extends UIAbility {
   private mainWindow?: window.Window;
-  onCreate(want: Want, _launchParam: AbilityConstant.LaunchParam): void { this.receive(want); }
+  onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
+    PlaybackDiagnostics.start(this.context,launchParam); this.receive(want);
+  }
   onNewWant(want: Want, _launchParam: AbilityConstant.LaunchParam): void { this.receive(want); }
   private receive(want: Want): void {
     if (want.parameters?.['wtv.openPlayer'] === true) AppStorage.setOrCreate('openPlayerRequest',Date.now());
@@ -13,6 +16,7 @@ export default class EntryAbility extends UIAbility {
     if (match) AppStorage.setOrCreate('sharedUrl',match[0]);
   }
   onWindowStageCreate(stage: window.WindowStage): void {
+    PlaybackDiagnostics.record('main window create');
     AppStorage.setOrCreate('abilityContext',this.context);
     AppStorage.setOrCreate('systemDark',this.context.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
     this.mainWindow = stage.getMainWindowSync();
@@ -32,6 +36,6 @@ export default class EntryAbility extends UIAbility {
     if (this.mainWindow) applySystemBars(this.mainWindow).catch((): void => {});
   }
   onWindowStageDestroy(): void { this.mainWindow?.off('avoidAreaChange'); this.mainWindow = undefined; }
-  onForeground(): void { AppStorage.setOrCreate('inForeground',true); }
-  onBackground(): void { AppStorage.setOrCreate('inForeground',false); }
+  onForeground(): void { PlaybackDiagnostics.record('ability foreground'); AppStorage.setOrCreate('inForeground',true); }
+  onBackground(): void { PlaybackDiagnostics.record('ability background'); AppStorage.setOrCreate('inForeground',false); }
 }

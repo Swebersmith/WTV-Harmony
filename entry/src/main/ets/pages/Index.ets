@@ -238,6 +238,16 @@ struct Index {
       this.notice('播放诊断已复制');
     } catch { this.notice('复制失败，请重试'); }
   }
+  async exportErrorLog(): Promise<void> {
+    if (!this.context) return;
+    try {
+      if (await PlaybackDiagnostics.exportFile(this.context)) this.notice('错误日志已导出');
+    } catch { this.notice('导出失败，可尝试复制日志'); }
+  }
+  clearErrorLog(): void {
+    try { PlaybackDiagnostics.clear(); this.notice('错误日志已清空'); }
+    catch { this.notice('部分日志未能清空，请重试'); }
+  }
   persist(): void {
     if (!this.ready) return;
     this.store.settings = {site:this.site,searches:this.sources,parsers:this.parsers,autoNext:this.autoNext,schemaVersion:2,blockAds:this.blockAds,prepareService:this.prepareService,reduceMotion:this.reduceMotion,
@@ -960,11 +970,22 @@ struct Index {
             .fontSize(12).fontColor(MUTED).lineHeight(19).width('100%')
         }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24)
         Column({space:8}) {
-          Text('WTV  1.7.2 · MPV').fontSize(15).fontWeight(FontWeight.Medium).fontColor(INK)
+          Text('WTV  1.7.3 · MPV').fontSize(15).fontWeight(FontWeight.Medium).fontColor(INK)
           Text('搜索、详情与片单使用鸿蒙原生页面。直链由原生播放器播放，网页线路由 ArkWeb 播放；部分验证和私有协议取决于线路本身。').fontSize(12).fontColor(MUTED).lineHeight(19)
-          Button('复制播放诊断',{type:ButtonType.Normal}).fontSize(13).borderRadius(12).backgroundColor(CARD).fontColor(ACCENT)
-            .onClick((): void => { this.copyPlaybackDiagnostics(); })
         }.padding(18).width('100%')
+        Column({space:12}) {
+          Text('错误与播放日志').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+          Text('闪退后重新打开应用，在这里导出。包含上次退出原因、系统提供的崩溃堆栈和播放步骤；仅保存在本机。')
+            .fontSize(12).fontColor(MUTED).lineHeight(19).width('100%')
+          Button('导出错误日志 TXT',{type:ButtonType.Normal}).fontSize(14).borderRadius(12).width('100%').backgroundColor(ACCENT)
+            .onClick((): void => { this.exportErrorLog(); })
+          Row({space:12}) {
+            Button('复制日志',{type:ButtonType.Normal}).fontSize(13).backgroundColor(FIELD).fontColor(INK).layoutWeight(1)
+              .onClick((): void => { this.copyPlaybackDiagnostics(); })
+            Button('清空日志',{type:ButtonType.Normal}).fontSize(13).backgroundColor(FIELD).fontColor(MUTED).layoutWeight(1)
+              .onClick((): void => this.clearErrorLog())
+          }.width('100%')
+        }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24)
       }.width('100%').padding({left:20,right:20,top:this.getUIContext().px2vp(this.safeTopPx)+64,bottom:this.getUIContext().px2vp(this.safeBottomPx)+88}).constraintSize({maxWidth:760})
     }.width('100%').height('100%').scrollBar(BarState.Off).edgeEffect(EdgeEffect.Spring)
   }
