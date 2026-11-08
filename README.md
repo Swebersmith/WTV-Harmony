@@ -46,7 +46,7 @@
 
 媒体实况窗由系统按照 AVSession 元数据、播放状态和 `setBackgroundPlayMode` 展示，不另发自定义实况窗。后台播放模式接口从 API 24 起可用；API 23 保留基础媒体卡片与后台任务接入，实况窗及具体样式由系统版本决定。点击系统卡片可返回当前播放页。
 
-点击播放器右上角的小窗图标，进入官方 [PiPWindow 画中画](https://developer.huawei.com/consumer/cn/doc/harmonyos-guides/pipwindow-typenode/)。主页面使用 NodeContainer 挂载 typeNode XComponent；在 ABOUT_TO_START 从页面移除同一视频节点，交由系统小窗挂载，在 ABOUT_TO_STOP 恢复到页面。MPV 继续使用同一节点与表面，提供系统播放 / 暂停、上一集 / 下一集控件；无更多剧集时禁用相应按钮。恢复到应用时继续播放，关闭小窗时暂停。设置页可开启「退出应用时自动小窗」（默认关闭，需要开启后台播放）。
+点击播放器右上角的小窗图标，进入官方 [PiPWindow 画中画](https://developer.huawei.com/consumer/cn/doc/harmonyos-guides/pipwindow-typenode/)。主页面使用 NodeContainer 挂载 typeNode XComponent；在 ABOUT_TO_START 从页面移除同一视频节点，交由系统小窗挂载，在 ABOUT_TO_STOP 恢复到页面。MPV 继续使用同一节点与表面，提供系统播放 / 暂停与快进 / 快退 10 秒控件。系统同一小窗只允许“快进快退”或“上一集 / 下一集”其中一组，本版按用户要求使用快进快退。恢复到应用时继续播放，关闭小窗时暂停。设置页可开启「退出应用时自动小窗」（默认关闭，需要开启后台播放）。
 
 系统卡片的 position.updateTime 按官方示例使用当前系统时间的毫秒时间戳（Date.now），与 elapsedTime 播放进度区分；不使用设备开机时长。系统卡片拖动进度时向 MPV 提交精确跳转，立即上报目标位置并保持等待状态，过滤跳转前的旧时间；内核时间到达目标后恢复正常进度上报。跳转超时则恢复真实位置，返回前台时可重试。小窗启动合并并发请求，重复启动错误会先核对系统状态，遇到卡住的启动只清理重试一次。
 
@@ -84,7 +84,7 @@ Windows PowerShell 示例，建议将工具与构建目录放在英文路径：
 
 ## 检查
 
-使用 SDK 中的 TypeScript 转译器运行 79 项协议、播放生命周期、投播、音量、亮度、后台任务、系统会话和画中画逻辑检查：
+使用 SDK 中的 TypeScript 转译器运行 81 项协议、播放生命周期、投播、音量、亮度、后台任务、系统会话和画中画逻辑检查：
 
 ```powershell
 $env:ARKTS_TYPESCRIPT = 'C:\Tools\command-line-tools\sdk\default\openharmony\ets\build-tools\ets-loader\node_modules\typescript'
@@ -93,7 +93,7 @@ node --test .\checks\native.mjs
 
 也可运行 `npm ci --ignore-scripts` 与 `npm test`，使用固定版本的标准 TypeScript 转译器执行同一组逻辑检查。测试中的 HTTP、音量、窗口、AVSession、后台任务、PiP 和 MPV 运行时使用替身；页面事件处理器只验证逻辑，不模拟渲染。
 
-**验证范围：** API 26 编译、ARM64 原生库和 HAP 结构检查已通过，79 项逻辑检查通过。1.7.6 的系统投播、投屏后系统播控、控制层点击隐藏、接口设置二级页、底栏图标位置与系统小窗还原需要在真机上复测；投播还取决于接收端设备与局域网。逻辑替身不能验证系统 UI、系统后台调度或实际解码连续性。
+**验证范围：** API 26 编译、ARM64 原生库和 HAP 结构检查已通过，81 项逻辑检查通过。1.7.6 的系统投播、投屏后系统播控、控制层点击隐藏、接口设置二级页、底栏图标位置、系统小窗快进快退与还原需要在真机上复测；投播还取决于接收端设备与局域网。逻辑替身不能验证系统 UI、系统后台调度或实际解码连续性。
 
 ## 许可与来源
 

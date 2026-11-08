@@ -6,6 +6,7 @@ import { PlaybackDiagnostics } from './PlaybackDiagnostics';
 
 export interface PictureCommands {
   play: () => void; pause: () => void; next: () => void; previous: () => void;
+  skip?: (seconds: number) => void;
   changed: (active: boolean) => void; restore: () => void; failed: () => void;
 }
 // The official preview/PiP pattern moves the same typeNode between its two parents.
@@ -55,6 +56,8 @@ export class PictureInPicture {
       if (event.status === PiPWindow.PiPControlStatus.PLAY) this.commands?.play(); else this.commands?.pause();
     } else if (event.controlType === PiPWindow.PiPControlType.VIDEO_NEXT && this.canNext) this.commands?.next();
     else if (event.controlType === PiPWindow.PiPControlType.VIDEO_PREVIOUS && this.canPrevious) this.commands?.previous();
+    else if (event.controlType === PiPWindow.PiPControlType.FAST_FORWARD) this.commands?.skip?.(10);
+    else if (event.controlType === PiPWindow.PiPControlType.FAST_BACKWARD) this.commands?.skip?.(-10);
   };
   isActive(): boolean { return this.active; }
   async open(context: common.UIAbilityContext, surface: VideoSurface, commands: PictureCommands, uiContext: UIContext): Promise<void> {
@@ -72,7 +75,7 @@ export class PictureInPicture {
     try {
       const controller = await PiPWindow.create({context,componentController:surface.controller,
         templateType:PiPWindow.PiPTemplateType.VIDEO_PLAY,contentWidth:this.width,contentHeight:this.height,
-        controlGroups:[PiPWindow.VideoPlayControlGroup.VIDEO_PREVIOUS_NEXT]},node);
+        controlGroups:[PiPWindow.VideoPlayControlGroup.FAST_FORWARD_BACKWARD]},node);
       if (this.disposed) { controller.setAutoStartEnabled(false); return; }
       this.controller = controller; this.appliedAuto = undefined;
       controller.on('stateChange',this.stateChanged); controller.on('controlEvent',this.controlEvent); this.updateControls();
@@ -89,8 +92,8 @@ export class PictureInPicture {
       catch (error) { PlaybackDiagnostics.record(`PiP auto error=${(error as BusinessError).code}`); }
     }
     try { controller.updatePiPControlStatus(PiPWindow.PiPControlType.VIDEO_PLAY_PAUSE,this.playing ? PiPWindow.PiPControlStatus.PLAY : PiPWindow.PiPControlStatus.PAUSE); } catch {}
-    try { controller.setPiPControlEnabled(PiPWindow.PiPControlType.VIDEO_PREVIOUS,this.canPrevious); } catch {}
-    try { controller.setPiPControlEnabled(PiPWindow.PiPControlType.VIDEO_NEXT,this.canNext); } catch {}
+    try { controller.setPiPControlEnabled(PiPWindow.PiPControlType.FAST_FORWARD,true); } catch {}
+    try { controller.setPiPControlEnabled(PiPWindow.PiPControlType.FAST_BACKWARD,true); } catch {}
   }
   size(width: number, height: number): void {
     if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;

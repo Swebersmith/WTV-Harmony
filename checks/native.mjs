@@ -112,7 +112,7 @@ class FakePip {
   async stopPiP(){this.stopped++;this.emit('stateChange',3,'');this.emit('stateChange',4,'');}
 }
 const pipApi={enabled:true,isPiPEnabled(){return this.enabled;},PiPState:{ABOUT_TO_START:1,STARTED:2,ABOUT_TO_STOP:3,STOPPED:4,ABOUT_TO_RESTORE:5,ERROR:6},
-  PiPControlType:{VIDEO_PLAY_PAUSE:0,VIDEO_PREVIOUS:1,VIDEO_NEXT:2},PiPControlStatus:{PLAY:1,PAUSE:0},PiPTemplateType:{VIDEO_PLAY:0},VideoPlayControlGroup:{VIDEO_PREVIOUS_NEXT:101},
+  PiPControlType:{VIDEO_PLAY_PAUSE:0,VIDEO_PREVIOUS:1,VIDEO_NEXT:2,FAST_FORWARD:3,FAST_BACKWARD:4},PiPControlStatus:{PLAY:1,PAUSE:0},PiPTemplateType:{VIDEO_PLAY:0},VideoPlayControlGroup:{VIDEO_PREVIOUS_NEXT:101,FAST_FORWARD_BACKWARD:102},
   async create(config,node){await pipGate;const c=new FakePip();c.config=config;c.node=node;pipControllers.push(c);return c;}};
 const nativePlayers = [];
 const stream=()=>{const callbacks=[];return {listen:callback=>callbacks.push(callback),emit:value=>callbacks.forEach(cb=>cb(value)),add:value=>callbacks.forEach(cb=>cb(value))};};
@@ -616,15 +616,26 @@ test('API 23 keeps basic system controls without invoking the API 24 background-
   deviceInfo.sdkApiVersion=23;const service=new MediaSession();await service.open(appContext,mediaCommands());await service.setBackground(false);
   assert.deepEqual(systemSessions.at(-1).background,[]);await service.close();deviceInfo.sdkApiVersion=26;
 });
-const pictureCommands=(events=[])=>({play:()=>events.push('play'),pause:()=>events.push('pause'),next:()=>events.push('next'),previous:()=>events.push('previous'),
+test('system fast-forward and rewind accept both millisecond and second payloads',async()=>{
+  const service=new MediaSession(),events=[];await service.open(appContext,mediaCommands(events));const session=systemSessions.at(-1);
+  session.commands.get('fastForward')(10000);assert.deepEqual(events.at(-1),['skip',10]);
+  session.commands.get('fastForward')(10);assert.deepEqual(events.at(-1),['skip',10],'some surfaces send seconds');
+  session.commands.get('rewind')(undefined);assert.deepEqual(events.at(-1),['skip',-10]);
+  session.commands.get('rewind')(15000);assert.deepEqual(events.at(-1),['skip',-15]);
+  await service.close();
+});
+const pictureCommands=(events=[])=>({play:()=>events.push('play'),pause:()=>events.push('pause'),next:()=>events.push('next'),previous:()=>events.push('previous'),skip:n=>events.push(['skip',n]),
   changed:n=>events.push(['active',n]),restore:()=>events.push('restore'),failed:()=>events.push('failed')});
 test('system PiP moves the preview node and routes controls with bounded previous/next availability',async()=>{
   const service=new PictureInPicture(),surface=new NativePlayback(),events=[];
   await service.open(appContext,new VideoSurface(surface),pictureCommands(events),{});const pip=pipControllers.at(-1);assert.equal(pip.config.componentController,surface);assert.equal(pip.node.options.controller,pip.config.componentController);
+  assert.deepEqual(pip.config.controlGroups,[102],'PiP exposes the fast-forward/backward group');
   assert.equal(pip.config.navigationId,undefined);service.configure(true,true,true,false,true);assert.equal(pip.auto,true);
   await service.start();assert.equal(service.isActive(),true);
   pip.emit('controlEvent',{controlType:0,status:0});pip.emit('controlEvent',{controlType:0,status:1});pip.emit('controlEvent',{controlType:1});pip.emit('controlEvent',{controlType:2});
-  assert.deepEqual(events.filter(x=>typeof x==='string'),['pause','play','next']);service.configure(true,true,false,false,true);assert.equal(pip.auto,false);
+  pip.emit('controlEvent',{controlType:3,status:1});pip.emit('controlEvent',{controlType:4,status:1});
+  assert.deepEqual(events.filter(x=>typeof x==='string'),['pause','play','next']);
+  assert.deepEqual(events.filter(x=>Array.isArray(x)&&x[0]==='skip'),[['skip',10],['skip',-10]]);service.configure(true,true,false,false,true);assert.equal(pip.auto,false);
   assert.equal(pip.statuses.at(-1).status,0);service.size(1280,720);assert.deepEqual(pip.size,[1280,720]);await service.close();assert.equal(pip.callbacks.size,0);
 });
 test('returning from PiP preserves playback; closing the system window pauses instead',async()=>{
@@ -648,6 +659,15 @@ test('background audio and PiP surface handoff reuse the core and can load the n
   player.onSurfaceCreated('pip-surface');assert.equal(nativePlayers.at(-1),core);assert.equal(core.destroyed,0);
   player.setAudioOnly(false);assert.equal(core.properties.get('vid'),'auto');assert.equal(core.autoplay,true);
   player.onSurfaceDestroyed('main-surface');assert.equal(core.destroyed,0);player.setKeepAlive(false);player.clear();player.detach();assert.equal(core.destroyed,1);
+});
+test('a seek while only audio is active re-seeks video when the player returns',async()=>{
+  const player=new NativePlayback();player.listen(playbackEvents());player.load('https://cdn.example/a.mp4',false);player.attach('surface-a');await flush();
+  const core=nativePlayers.at(-1);core.emit(8);
+  player.setAudioOnly(true);assert.equal(core.properties.get('vid'),'no');
+  player.setCurrentTime(48);assert.equal(core.currentTime,48);assert.equal(core.lastCommand[0],'seek');
+  player.setAudioOnly(false);assert.equal(core.properties.get('vid'),'auto');
+  assert.equal(core.lastCommand[1],'48.000','video is realigned to the audio-only seek target');
+  player.clear();player.detach();assert.equal(core.destroyed,1);
 });
 test('entering the background keeps opted-in playback, but pauses when both background and PiP are disabled',async()=>{
   const ui=new IndexHandlers();let pauses=0,audioOnly,retained;

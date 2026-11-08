@@ -79,12 +79,16 @@ export class MediaSession {
         commands.seek(Math.max(0,milliseconds/1000));
       });
       session.on('fastForward',(milliseconds?: number): void => {
-        if (this.casting) { this.castCommand({command:'fastForward',parameter:this.castSkipSeconds(milliseconds)}).catch((): void => {}); return; }
-        commands.skip(Number.isFinite(milliseconds) ? Math.max(0,milliseconds as number)/1000 : 10);
+        const seconds = this.skipSeconds(milliseconds);
+        PlaybackDiagnostics.record(`system fastForward raw=${milliseconds} skip=${seconds}`);
+        if (this.casting) { this.castCommand({command:'fastForward',parameter:seconds}).catch((): void => {}); return; }
+        commands.skip(seconds);
       });
       session.on('rewind',(milliseconds?: number): void => {
-        if (this.casting) { this.castCommand({command:'rewind',parameter:this.castSkipSeconds(milliseconds)}).catch((): void => {}); return; }
-        commands.skip(-(Number.isFinite(milliseconds) ? Math.max(0,milliseconds as number)/1000 : 10));
+        const seconds = this.skipSeconds(milliseconds);
+        PlaybackDiagnostics.record(`system rewind raw=${milliseconds} skip=${seconds}`);
+        if (this.casting) { this.castCommand({command:'rewind',parameter:seconds}).catch((): void => {}); return; }
+        commands.skip(-seconds);
       });
       session.on('setSpeed',(speed: number): void => {
         if (this.casting) { this.castCommand({command:'setSpeed',parameter:this.castSpeed(speed)}).catch((): void => {}); return; }
@@ -184,8 +188,14 @@ export class MediaSession {
     if (rate === 2) return media.PlaybackSpeed.SPEED_FORWARD_2_00_X;
     return media.PlaybackSpeed.SPEED_FORWARD_1_00_X;
   }
-  private castSkipSeconds(milliseconds?: number): number {
-    return Number.isFinite(milliseconds) ? Math.max(1,Math.round((milliseconds as number)/1000)) : 10;
+  private skipSeconds(milliseconds?: number): number {
+    if (!Number.isFinite(milliseconds)) return 10;
+    const value = milliseconds as number;
+    if (value <= 0) return 10;
+    // The documented unit is milliseconds, but some system surfaces deliver seconds (10 for 10 s).
+    if (value >= 1000) return value/1000;
+    if (value <= 60) return Math.max(1,Math.round(value));
+    return 10;
   }
   private outputDeviceChanged: (state: avSession.ConnectionState, device: avSession.OutputDeviceInfo) => void =
     (state: avSession.ConnectionState, device: avSession.OutputDeviceInfo): void => {

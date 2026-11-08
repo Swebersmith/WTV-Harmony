@@ -450,7 +450,7 @@ struct Index {
         stop:(): void => { this.video.pause(); this.pip.stop(false).catch((): void => {}); },
         next:(): void => this.neighbor(1),previous:(): void => this.neighbor(-1),
         seek:(seconds: number): void => this.seekFromSystem(seconds),
-        skip:(seconds: number): void => this.seekFromSystem(this.elapsed+seconds),
+        skip:(seconds: number): void => this.seekFromSystem(this.video.position()+seconds),
         rate:(value: number): void => this.video.setRate(value)
       });
       if (this.disposed) return;
@@ -499,6 +499,7 @@ struct Index {
     await this.pip.open(this.context,this.videoSurface,{
       play:(): void => this.playFromSystem(),pause:(): void => this.video.pause(),
       next:(): void => this.neighbor(1),previous:(): void => this.neighbor(-1),
+      skip:(seconds: number): void => this.seekFromSystem(this.video.position()+seconds),
       changed:(active: boolean): void => {
         this.pipActive = active; this.keepAwake(this.playing && this.foreground && this.tab === 1 && !active); this.syncBackground();
       },

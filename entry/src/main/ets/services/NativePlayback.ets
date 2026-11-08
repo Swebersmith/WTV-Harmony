@@ -34,9 +34,17 @@ export class NativePlayback extends XComponentController implements EventObserve
   private desiredVolume: number = 1;
   private keepAlive: boolean = false;
   private audioOnly: boolean = false;
+  private audioOnlySeek: boolean = false;
   private events?: PlaybackEvents;
   getRate(): number { return this.desiredRate; }
   getVolume(): number { return this.desiredVolume; }
+  position(): number {
+    try {
+      const value = this.player?.state.position;
+      if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return value;
+    } catch {}
+    return this.current;
+  }
   listen(events: PlaybackEvents): void { this.events = events; }
   // The typeNode bridge can invoke these functions with its own receiver. Capture our playback instance.
   onSurfaceCreated: (surface: string) => void = (surface: string): void => {
@@ -55,7 +63,20 @@ export class NativePlayback extends XComponentController implements EventObserve
   };
   setKeepAlive(value: boolean): void { this.keepAlive = value; }
   isRetained(): boolean { return this.keepAlive; }
-  setAudioOnly(value: boolean): void { if (this.audioOnly !== value) { this.audioOnly = value; this.applyVideoMode(); } }
+  setAudioOnly(value: boolean): void {
+    if (this.audioOnly === value) return;
+    const wasAudioOnly = this.audioOnly;
+    this.audioOnly = value;
+    this.applyVideoMode();
+    // Seeking while the video track is disabled can leave the decoder on its old frame.
+    // Re-apply the target once video is enabled so picture and audio resume together.
+    if (wasAudioOnly && !value && this.audioOnlySeek) {
+      this.audioOnlySeek = false;
+      const target = this.seekTarget !== undefined ? this.seekTarget : this.current;
+      PlaybackDiagnostics.record(`video resync after audio-only seek=${target.toFixed(3)}`);
+      this.setCurrentTime(target);
+    }
+  }
   private applyVideoMode(): void {
     try { this.player?.native.setProperty('vid',this.audioOnly || !this.surface ? 'no' : 'auto'); } catch {}
   }
@@ -218,6 +239,7 @@ export class NativePlayback extends XComponentController implements EventObserve
       const result = player.native.command(['seek',target.toFixed(3),'absolute+exact']);
       PlaybackDiagnostics.record(`seek target=${target.toFixed(3)} result=${result}`);
       if (result < 0) { this.clearSeek(); this.events?.seekFailed?.(); return false; }
+      if (this.audioOnly) this.audioOnlySeek = true;
       player.state.eof = false; player.stream.eof.add(false); this.completed = false;
       this.current = target; this.events?.buffering(true); this.events?.time(target);
       this.seekTimer = setTimeout((): void => {
