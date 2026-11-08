@@ -58,6 +58,7 @@ export struct NativePlayer {
   private unmutedLevel: number = 1;
   private panAxis: number = 0;
   private panSeek: number = 0;
+  private panCancelled: boolean = false;
   private oldRate: number = 1;
   @State visible: boolean = true;
   @State locked: boolean = false;
@@ -180,19 +181,24 @@ export struct NativePlayer {
   }
   panStart(event: GestureEvent): void {
     if (this.locked || this.inPip) return;
-    this.endHold(); this.panAxis = 0; this.startTime = this.elapsed; this.volumeService.refresh();
+    this.endHold(); this.panAxis = 0; this.panCancelled = false; this.startTime = this.elapsed; this.volumeService.refresh();
     this.startVolume = this.volumeLevel; this.startBrightness = this.screenBrightness;
     const startX = (event.fingerList[0]?.localX || 0)-event.offsetX;
     this.panSide = startX < this.widthVp/2 ? 1 : 2;
     this.panSeek = this.elapsed; clearTimeout(this.hideTimer);
   }
   panUpdate(event: GestureEvent): void {
-    if (this.locked || this.inPip) return;
+    if (this.locked || this.inPip || this.panCancelled) return;
     if (this.panAxis === 0) this.panAxis = Math.abs(event.offsetX) > Math.abs(event.offsetY) ? 1 : 2;
     if (this.panAxis === 1 && this.duration > 0) {
+      // A deliberate upward swipe cancels the pending seek instead of committing it.
+      if (this.scrubbing && event.offsetY < -48) {
+        this.panCancelled = true; this.scrubbing = false; this.previewTime = this.elapsed; this.hint = '已取消跳转';
+        return;
+      }
       this.scrubbing = true;
       this.panSeek = Math.max(0,Math.min(this.duration-0.2,this.startTime+event.offsetX/this.widthVp*Math.min(this.duration,300)));
-      this.previewTime = this.panSeek; this.hint = `${this.time(this.panSeek)} / ${this.time(this.duration)}`;
+      this.previewTime = this.panSeek; this.hint = `${this.time(this.panSeek)} / ${this.time(this.duration)} · 上滑取消`;
     } else if (this.panAxis === 2 && this.panSide === 2) {
       this.requestSystemVolume(volumeFromSwipe(this.startVolume,this.volumeMin,this.volumeMax,event.offsetY,this.heightVp));
     } else if (this.panAxis === 2 && this.panSide === 1) {
@@ -201,7 +207,8 @@ export struct NativePlayer {
   }
   panEnd(commit: boolean): void {
     if (commit && this.scrubbing) this.seek(this.panSeek);
-    this.brightnessService.flush(); this.scrubbing = false; if (this.hint) this.showHint(this.hint); this.armHide();
+    this.brightnessService.flush(); this.scrubbing = false; this.panCancelled = false;
+    if (this.hint) this.showHint(this.hint); this.armHide();
   }
   openPanel(name: string): void {
     this.getUIContext().animateTo({duration:this.reduceMotion ? 0 : 180,curve:Curve.EaseOut},(): void => {
@@ -212,13 +219,13 @@ export struct NativePlayer {
   @Builder
   icon(asset: Resource, label: string, action: () => void, large: boolean = false) {
     Button({type:ButtonType.Circle}) { Image(asset).width(large ? 28 : 22).height(large ? 28 : 22).objectFit(ImageFit.Contain) }
-      .width(large ? 56 : 40).height(large ? 56 : 40).backgroundColor(large ? '#B3233940' : '#99121D28')
-      .accessibilityText(label).stateStyles({pressed:{backgroundColor:'#40A1E6D0'}}).onClick(action)
+      .width(large ? 56 : 40).height(large ? 56 : 40).backgroundColor(Color.Transparent)
+      .accessibilityText(label).stateStyles({pressed:{opacity:0.6}}).onClick(action)
   }
   @Builder
   castGlyph() {
     Stack({alignContent:Alignment.Center}) {
-      Image($r('app.media.player_cast')).width(21).height(21).objectFit(ImageFit.Contain)
+      SymbolGlyph($r('sys.symbol.statusbar_cast')).fontSize(22).fontColor([WHITE])
     }.width('100%').height('100%')
   }
   @Builder
@@ -231,14 +238,14 @@ export struct NativePlayer {
           if (state === AVCastPickerState.STATE_APPEARING) this.activity();
           else this.armHide();
         }
-      }).width(40).height(40)
-    }.width(40).height(40).borderRadius(20).backgroundColor('#99121D28').clip(true)
+      }).width(40).height(40).backgroundColor(Color.Transparent)
+    }.width(40).height(40).borderRadius(20).clip(true)
   }
   @Builder
   castOverlay() {
     Column() {
       Column({space:10}) {
-        Image($r('app.media.player_cast')).width(32).height(32).objectFit(ImageFit.Contain)
+        SymbolGlyph($r('sys.symbol.statusbar_cast')).fontSize(32).fontColor([MINT])
         Text('正在投屏').fontSize(11).fontColor(MINT)
         Text(this.castDevice || '已连接的设备').fontSize(17).fontWeight(FontWeight.Medium).fontColor(WHITE).maxLines(1)
         Text(this.duration > 0 ? `${this.time(this.castElapsed)} / ${this.time(this.duration)}` : this.time(this.castElapsed))
@@ -261,7 +268,8 @@ export struct NativePlayer {
         Image(forward ? $r('app.media.player_forward') : $r('app.media.player_rewind')).width(25).height(25).objectFit(ImageFit.Contain)
         Text('10 秒').fontSize(10).fontWeight(FontWeight.Medium).fontColor(WHITE)
       }.justifyContent(FlexAlign.Center).width('100%').height('100%')
-    }.width(48).height(52).borderRadius(16).backgroundColor('#99121D28')
+    }.width(48).height(52).borderRadius(16).backgroundColor(Color.Transparent)
+      .stateStyles({pressed:{opacity:0.55}})
       .accessibilityText(forward ? '快进十秒' : '快退十秒').onClick((): void => {
         this.seek(this.elapsed+(forward ? 10 : -10)); this.showHint(forward ? '快进 10 秒' : '快退 10 秒');
       })
@@ -387,7 +395,11 @@ export struct NativePlayer {
         AVVolumePanel({volumeLevel:this.requestedVolume}).width(10).height(1)
           .visibility(this.volumePanelVisible ? Visibility.Visible : Visibility.Hidden).hitTestBehavior(HitTestMode.None)
       }
-      if (this.panel && !this.locked) { this.optionsPanel() }
+      if (this.panel && !this.locked) {
+        Column().width('100%').height('100%').backgroundColor('#4DFFFFFF')
+          .onClick((): void => { this.panel = ''; this.armHide(); })
+        this.optionsPanel()
+      }
       if (this.inPip) {
         Column({space:12}) {
           Text('正在小窗播放').fontSize(14).fontColor(WHITE)

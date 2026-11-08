@@ -680,6 +680,15 @@ test('endpoint enable toggles drive the active source and parser lists',()=>{
   ui.toggleEndpoint('parser',web,false);assert.deepEqual(ui.activeParsers().map(value=>value.id),['p2']);
   ui.toggleEndpoint('search',first,true);assert.deepEqual(ui.activeSources().map(value=>value.id),['a','b']);
 });
+test('library deduplicates favorites and watch records for consistent counts',()=>{
+  const ui=new IndexHandlers();
+  const movie={id:'1',title:'同一部',platform:'tencent',year:'2026',cover:'',overview:'',remarks:'',url:'https://v.example/1',detail_url:'',sourceId:'site-a'};
+  const other={...movie,sourceId:'site-b'};
+  const first={movie,episode:{title:'第1集',url:'https://v.example/1'},seconds:1,updated:1};
+  const second={movie:other,episode:{title:'第1集',url:'https://v.example/1'},seconds:2,updated:2};
+  assert.equal(ui.uniqueFavorites([movie,other]).length,1);
+  assert.equal(ui.uniqueRecords([first,second]).length,1);
+});
 test('entering the background keeps opted-in playback, but pauses when both background and PiP are disabled',async()=>{
   const ui=new IndexHandlers();let pauses=0,audioOnly,retained;
   ui.video={pause:()=>pauses++,setAudioOnly:n=>audioOnly=n,setKeepAlive:n=>retained=n};ui.keepAwake=()=>{};

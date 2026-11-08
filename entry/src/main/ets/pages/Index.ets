@@ -25,7 +25,7 @@ const CARD: Resource = $r('app.color.card_background');
 const INK: Resource = $r('app.color.text_primary');
 const MUTED: Resource = $r('app.color.text_secondary');
 const ACCENT: string = '#167E6B';
-const VERSION: string = '1.7.6';
+const VERSION: string = '1.7.7';
 
 @Entry
 @Component
@@ -69,6 +69,7 @@ struct Index {
   private searchSerial: number = 0;
   private detailSerial: number = 0;
   private resolveSerial: number = 0;
+  private recordSerial: number = 0;
   private savedAt: number = 0;
   private suppressedRecords: Set<string> = new Set<string>();
   private undoRecord?: WatchRecord;
@@ -202,8 +203,8 @@ struct Index {
       this.reduceMotion = this.store.settings.reduceMotion === true;
       this.blockAds = this.store.settings.blockAds !== false;
       this.prepareService = this.store.settings.prepareService || defaults().prepareService || '';
-      this.favorites = this.store.library.favorites;
-      this.records = this.store.library.records;
+      this.favorites = this.uniqueFavorites(this.store.library.favorites);
+      this.records = this.uniqueRecords(this.store.library.records);
       this.queries = this.store.library.queries;
       this.ready = true;
       this.onShared();
@@ -337,13 +338,20 @@ struct Index {
     } catch (error) { if (serial === this.detailSerial) this.detailError = this.message(error as Error); }
     finally { if (serial === this.detailSerial) this.detailLoading = false; }
   }
-  isFavorite(item: Movie): boolean { return this.favorites.some((m: Movie): boolean => movieKey(m) === movieKey(item)); }
+  isFavorite(item: Movie): boolean {
+    return this.favorites.some((m: Movie): boolean => (m.title === item.title && m.year === item.year) || movieKey(m) === movieKey(item));
+  }
   toggleFavorite(item: Movie): void {
+    const exists = this.favorites.some((m: Movie): boolean => m.title === item.title && m.year === item.year);
     this.getUIContext().animateTo({duration:this.reduceMotion ? 0 : 180,curve:Curve.EaseOut},(): void => {
-      if (this.isFavorite(item)) this.favorites = this.favorites.filter((m: Movie): boolean => movieKey(m) !== movieKey(item));
+      if (exists) this.favorites = this.favorites.filter((m: Movie): boolean => !(m.title === item.title && m.year === item.year));
       else this.favorites = [item,...this.favorites].slice(0,200);
     });
     this.persist();
+  }
+  removeFavorite(item: Movie): void {
+    this.favorites = this.favorites.filter((m: Movie): boolean => !(m.title === item.title && m.year === item.year));
+    this.persist(); this.notice('已取消收藏');
   }
   chooseEpisode(index: number): void {
     const episodes = this.lines[this.lineIndex]?.episodes || [];
@@ -592,8 +600,28 @@ struct Index {
   }
   resume(record: WatchRecord): void {
     this.currentMovie = record.movie; this.currentEpisode = record.episode;
-    this.currentEpisodes = []; this.currentIndex = -1; this.inputUrl = record.episode.url; this.resumeAt = record.seconds;
+    this.currentEpisodes = [record.episode]; this.currentIndex = 0; this.inputUrl = record.episode.url; this.resumeAt = record.seconds;
     this.changeTab(1); this.resolve();
+    this.fillRecordEpisodes(record);
+  }
+  private async fillRecordEpisodes(record: WatchRecord): Promise<void> {
+    if (!record.movie.id && !record.movie.detail_url) return;
+    const serial = ++this.recordSerial;
+    const source = this.sources.find((value: Endpoint): boolean => value.id === record.movie.sourceId) || this.activeSources()[0];
+    if (!source) return;
+    try {
+      const detail = await this.api.detail(source,record.movie);
+      if (serial !== this.recordSerial || this.currentEpisode.url !== record.episode.url) return;
+      let lineIndex = detail.playlists.findIndex((line: Playlist): boolean => line.episodes.some((episode: Episode): boolean => episode.url === record.episode.url));
+      if (lineIndex < 0) lineIndex = 0;
+      const line = detail.playlists[lineIndex];
+      if (!line) return;
+      this.lines = detail.playlists; this.lineIndex = lineIndex;
+      this.currentEpisodes = line.episodes;
+      this.currentIndex = line.episodes.findIndex((episode: Episode): boolean => episode.url === record.episode.url);
+      if (this.currentIndex >= 0) { this.currentEpisode = line.episodes[this.currentIndex]; this.inputUrl = this.currentEpisode.url; }
+      this.currentMovie = detail.series;
+    } catch {}
   }
   keepAwake(value: boolean): void {
     if (this.context) window.getLastWindow(this.context).then((win: window.Window): void => {
@@ -750,6 +778,37 @@ struct Index {
   }
   clearQueries(): void {
     this.queries = []; this.persist(); this.notice('搜索历史已清空');
+  }
+  toggleSection(kind: string): void {
+    this.getUIContext().animateTo({duration:this.reduceMotion ? 0 : 260,curve:Curve.Friction},(): void => {
+      if (kind === 'search') this.searchOpen = !this.searchOpen;
+      else this.parserOpen = !this.parserOpen;
+    });
+  }
+  private uniqueFavorites(list: Movie[]): Movie[] {
+    const seen: Set<string> = new Set<string>(); const result: Movie[] = [];
+    for (const item of list) {
+      const key = `${item.title}|${item.year}`;
+      if (!seen.has(key)) { seen.add(key); result.push(item); }
+    }
+    return result;
+  }
+  private uniqueRecords(list: WatchRecord[]): WatchRecord[] {
+    const seen: Set<string> = new Set<string>(); const result: WatchRecord[] = [];
+    for (const record of list) {
+      if (!record.episode.url) continue;
+      if (!seen.has(record.episode.url)) { seen.add(record.episode.url); result.push(record); }
+    }
+    return result;
+  }
+  sourceName(sourceId: string): string {
+    const source = this.sources.find((item: Endpoint): boolean => item.id === sourceId);
+    return source?.name || '来源不可用';
+  }
+  recordSource(movie: Movie): string {
+    const platform = PLATFORMS.indexOf(movie.platform);
+    if (platform >= 0) return PLATFORM_NAMES[platform];
+    return this.sourceName(movie.sourceId);
   }
   endpointTypeLabel(item: Endpoint): string {
     if (item.type === 'web') return '网页解析';
@@ -1013,7 +1072,16 @@ struct Index {
       }
       ListItem() { Text(`收藏 · ${this.favorites.length}`).fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).width('100%') }
       if (!this.favorites.length) { ListItem() { Text('在影片详情中点击“加入收藏”').fontSize(14).fontColor(MUTED).width('100%').padding(18) } }
-      ForEach(this.favorites,(item: Movie) => { ListItem() { this.movieCard(item) } },(item: Movie): string => movieKey(item))
+      ForEach(this.favorites,(item: Movie) => {
+        ListItem() { this.favoriteCard(item) }
+          .borderRadius(16).clip(true)
+          .swipeAction({
+            start:{builder:(): void => { this.favoriteOpenAction(item); },actionAreaDistance:56,onAction:(): void => { this.openMovie(item); }},
+            end:{builder:(): void => { this.favoriteDeleteAction(item); },actionAreaDistance:56,onAction:(): void => this.removeFavorite(item)},
+            edgeEffect:SwipeEdgeEffect.Spring
+          })
+          .accessibilityDescription('左滑取消收藏，右滑查看详情')
+      },(item: Movie): string => `${item.title}|${item.year}`)
       ListItem() {
         Row() {
           Text('继续观看').fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
@@ -1034,7 +1102,7 @@ struct Index {
           Row({space:12}) {
             Column({space:6}) {
               Text(record.movie.title).fontSize(16).fontWeight(FontWeight.Medium).fontColor(INK).width('100%')
-              Text(`${record.episode.title} · 已看 ${this.time(record.seconds)}`).fontSize(12).fontColor(MUTED).width('100%')
+              Text(`${record.episode.title} · 来源 ${this.recordSource(record.movie)} · 已看 ${this.time(record.seconds)}`).fontSize(12).fontColor(MUTED).maxLines(2).width('100%')
             }.layoutWeight(1)
             Button('续播').fontSize(13).backgroundColor(ACCENT).onClick((): void => this.resume(record))
           }.padding(18).backgroundColor(CARD).borderRadius(24).width('100%')
@@ -1056,6 +1124,41 @@ struct Index {
       .onClick((): void => this.deleteRecord(record))
   }
   @Builder
+  favoriteCard(item: Movie) {
+    Row({space:12}) {
+      Stack() {
+        Text(item.title.slice(0,6)).fontSize(12).fontColor('#FFFFFF').padding(6).textAlign(TextAlign.Center)
+        if (validUrl(item.cover,true)) { Image(item.cover).width('100%').height('100%').objectFit(ImageFit.Cover) }
+      }.width(62).height(86).borderRadius(10).backgroundColor('#2F5D65').clip(true)
+      Column({space:4}) {
+        Text(item.title).fontSize(15).fontWeight(FontWeight.Medium).fontColor(INK).maxLines(1).width('100%')
+        Text([item.year,item.remarks].filter((value: string): boolean => !!value).join(' · ') || '查看详情').fontSize(11).fontColor(MUTED).maxLines(1).width('100%')
+      }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+      Text('›').fontSize(24).fontColor(ACCENT)
+    }.padding(10).width('100%').backgroundColor(CARD).borderRadius(16).onClick((): void => { this.openMovie(item); })
+      .stateStyles({pressed:{opacity:0.82}}).accessibilityText(`${item.title}，查看详情`)
+  }
+  @Builder
+  favoriteDeleteAction(item: Movie) {
+    Button({type:ButtonType.Normal}) {
+      Column({space:5}) {
+        SymbolGlyph($r('sys.symbol.heart')).fontSize(20).fontColor([Color.White])
+        Text('取消收藏').fontSize(12).fontWeight(FontWeight.Medium).fontColor(Color.White)
+      }.justifyContent(FlexAlign.Center).height('100%').width('100%')
+    }.width(80).height('100%').backgroundColor('#D94D59').borderRadius(16).accessibilityText('取消收藏')
+      .onClick((): void => this.removeFavorite(item))
+  }
+  @Builder
+  favoriteOpenAction(item: Movie) {
+    Button({type:ButtonType.Normal}) {
+      Column({space:5}) {
+        SymbolGlyph($r('sys.symbol.play_circle')).fontSize(20).fontColor([Color.White])
+        Text('详情').fontSize(12).fontWeight(FontWeight.Medium).fontColor(Color.White)
+      }.justifyContent(FlexAlign.Center).height('100%').width('100%')
+    }.width(72).height('100%').backgroundColor(ACCENT).borderRadius(16).accessibilityText('查看详情')
+      .onClick((): void => { this.openMovie(item); })
+  }
+  @Builder
   libraryStat(value: string, label: string) {
     Column({space:5}) {
       Text(value).fontSize(28).fontWeight(FontWeight.Medium).fontColor(INK)
@@ -1063,7 +1166,7 @@ struct Index {
     }.layoutWeight(1).padding(20).backgroundColor(CARD).borderRadius(24)
   }
   @Builder
-  endpointCard(item: Endpoint, kind: string) {
+  endpointCard(item: Endpoint, kind: string, order: number) {
     Column({space:6}) {
       Row({space:10}) {
         Column({space:2}) {
@@ -1079,6 +1182,8 @@ struct Index {
         if (item.apiKey) { Text('已设置 Bearer 令牌').fontSize(10).fontColor(MUTED) }
       }.width('100%')
     }.padding({left:14,right:12,top:10,bottom:10}).backgroundColor(CARD).borderRadius(16).width('100%')
+      .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({y:10}))
+        .animation({duration:this.reduceMotion ? 0 : 220,curve:Curve.Friction,delay:this.reduceMotion ? 0 : order*32}))
   }
   @Builder
   settingsPage() {
@@ -1188,12 +1293,12 @@ struct Index {
               Column({space:3}) {
                 Text('搜索接口').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
                 Text(`${this.sources.length} 个 · ${this.activeSources().length} 启用`).fontSize(11).fontColor(MUTED).width('100%')
-              }.layoutWeight(1).onClick((): void => { this.searchOpen = !this.searchOpen; })
+              }.layoutWeight(1).onClick((): void => this.toggleSection('search'))
               Button('＋ 添加',{type:ButtonType.Normal}).fontSize(12).fontColor(ACCENT).backgroundColor(BG).height(32).borderRadius(10).onClick((): void => this.edit('search'))
-              Text(this.searchOpen ? '⌃' : '⌄').fontSize(18).fontColor(MUTED).padding({left:6,right:6}).onClick((): void => { this.searchOpen = !this.searchOpen; })
+              Text(this.searchOpen ? '⌃' : '⌄').fontSize(18).fontColor(MUTED).padding({left:6,right:6}).onClick((): void => this.toggleSection('search'))
             }.padding(16).width('100%').backgroundColor(CARD).borderRadius(20)
             if (this.searchOpen) {
-              ForEach(this.sources,(item: Endpoint) => { this.endpointCard(item,'search') },(item: Endpoint): string => item.id)
+              ForEach(this.sources,(item: Endpoint,index: number) => { this.endpointCard(item,'search',index) },(item: Endpoint): string => item.id)
             }
           }.width('100%')
           Column({space:8}) {
@@ -1201,13 +1306,13 @@ struct Index {
               Column({space:3}) {
                 Text('播放接口').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
                 Text(`${this.parsers.length} 个 · ${this.activeParsers().length} 启用`).fontSize(11).fontColor(MUTED).width('100%')
-              }.layoutWeight(1).onClick((): void => { this.parserOpen = !this.parserOpen; })
+              }.layoutWeight(1).onClick((): void => this.toggleSection('parser'))
               Button('＋ 添加',{type:ButtonType.Normal}).fontSize(12).fontColor(ACCENT).backgroundColor(BG).height(32).borderRadius(10).onClick((): void => this.edit('parser'))
-              Text(this.parserOpen ? '⌃' : '⌄').fontSize(18).fontColor(MUTED).padding({left:6,right:6}).onClick((): void => { this.parserOpen = !this.parserOpen; })
+              Text(this.parserOpen ? '⌃' : '⌄').fontSize(18).fontColor(MUTED).padding({left:6,right:6}).onClick((): void => this.toggleSection('parser'))
             }.padding(16).width('100%').backgroundColor(CARD).borderRadius(20)
             if (this.parserOpen) {
               Text('MP4 / M3U8 直链会直接原生播放，不需要解析接口；网页链接再选择下面的接口。').fontSize(11).fontColor(MUTED).lineHeight(17).width('100%')
-              ForEach(this.parsers,(item: Endpoint) => { this.endpointCard(item,'parser') },(item: Endpoint): string => item.id)
+              ForEach(this.parsers,(item: Endpoint,index: number) => { this.endpointCard(item,'parser',index) },(item: Endpoint): string => item.id)
             }
           }.width('100%')
         }.padding({left:20,right:20,top:this.settingsTop(),bottom:this.getUIContext().px2vp(this.safeBottomPx)+24})
