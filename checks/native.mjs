@@ -49,7 +49,13 @@ const mpvApi={Player:FakeMpv,PlayerConfig:class{constructor(options){Object.assi
 const loaded = new Map();
 function load(name) {
   if (loaded.has(name)) return loaded.get(name);
-  const source = fs.readFileSync(path.resolve(here,'../entry/src/main/ets',name+'.ets'),'utf8');
+  let source = fs.readFileSync(path.resolve(here,'../entry/src/main/ets',name+'.ets'),'utf8');
+  // Exercise the real component event handlers without pretending to render ArkUI's declarative DSL.
+  if (name === 'components/NativePlayer') {
+    source = source.slice(0,source.search(/^\s+@Builder\b/m))+'\n}';
+    source = source.replace(/@Component\s+/g,'').replace(/@(Prop|State)\b/g,'')
+      .replace(/@(Watch|StorageProp)\([^)]*\)/g,'').replace('export struct NativePlayer','export class NativePlayer');
+  }
   const {outputText} = ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}});
   const module = {exports:{}};
   const localRequire = id => id === '@kit.NetworkKit' ? {http} : id === '@kit.ArkUI' ? {window:windowApi} : id === '@kit.AudioKit' ? {audio:audioApi} : id === '@mpv-ohos/mpv-arkts' ? mpvApi : load(path.posix.normalize(path.posix.join(path.posix.dirname(name),id)));
@@ -60,6 +66,7 @@ const models = load('model/Models');
 const {Api,collectionPayload,collectionLines} = load('services/Api');
 const {AdFilter,originalTime,filteredTime,validatePrepared,prepareNativeMedia} = load('services/AdFilter');
 const {NativePlayback} = load('services/NativePlayback');
+const {NativePlayer:NativePlayerHandlers} = load('components/NativePlayer');
 const {SystemMediaVolume,PlayerBrightness,volumeFromSwipe,brightnessFromSwipe} = load('services/PlayerDeviceControls');
 const {updateAvoidAreas,applySystemBars} = load('design/WindowStyle');
 const source = (type='wtv') => ({id:'test',name:'测试源',url:'https://source.example/api.php/provide/vod/?token=keep',type,apiKey:'',enabled:true});
@@ -323,6 +330,38 @@ test('MPV playback completion reports once per play, including an explicit repla
   player.load('https://cdn.example/a.mp4',false);player.onSurfaceCreated('surface-eof');const p=nativePlayers.at(-1);p.emit(8);
   p.stream.eof.emit(true);p.stream.eof.emit(true);assert.equal(endings,1);
   player.start();p.stream.eof.emit(true);assert.equal(endings,2);player.clear();player.detach();
+});
+
+test('volume gesture end and prompt timeout preserve the last numeric system volume command',t=>{
+  t.mock.timers.enable({apis:['setTimeout']});
+  const ui=new NativePlayerHandlers();ui.volumeReady=true;ui.volumeMin=0;ui.volumeMax=20;ui.volumeLevel=6;
+  assert.equal(ui.volumeCommandIssued,false,'no volume command on mounting');
+  ui.requestSystemVolume(12);assert.equal(ui.requestedVolume,12);assert.equal(ui.volumePanelVisible,true);
+  ui.panEnd(true);t.mock.timers.tick(1300);
+  assert.equal(ui.volumePanelVisible,false);assert.equal(ui.requestedVolume,12);
+  assert.equal(ui.volumeCommandIssued,true,'prompt hiding must not remount or reset the command');
+  t.mock.timers.tick(10000);assert.equal(ui.requestedVolume,12);
+  ui.closeDeviceControls();assert.equal(ui.volumeCommandIssued,false);assert.equal(ui.requestedVolume,12);
+});
+test('repeated volume swipes replace prompt timers without injecting a zero or undefined command',t=>{
+  t.mock.timers.enable({apis:['setTimeout']});
+  const ui=new NativePlayerHandlers();ui.volumeReady=true;ui.volumeMin=0;ui.volumeMax=20;ui.volumeLevel=6;
+  ui.requestSystemVolume(12);t.mock.timers.tick(1000);ui.requestSystemVolume(15);
+  t.mock.timers.tick(300);assert.equal(ui.volumePanelVisible,true);assert.equal(ui.requestedVolume,15);
+  t.mock.timers.tick(1000);assert.equal(ui.volumePanelVisible,false);assert.equal(ui.requestedVolume,15);
+  ui.requestSystemVolume(99);assert.equal(ui.requestedVolume,20);
+  ui.foreground=false;ui.closeDeviceControls();ui.requestSystemVolume(5);assert.equal(ui.requestedVolume,20);
+});
+test('play/pause button handlers update state even when the native stream callback is delayed',()=>{
+  const ui=new NativePlayerHandlers(),events=playbackEvents();events.playing=value=>{ui.playing=value;ui.playbackChanged();};
+  const player=ui.controller;player.listen(events);player.load('https://cdn.example/toggle.mp4',false);player.attach('surface-toggle');
+  const core=nativePlayers.at(-1);let pauses=0;
+  core.play=()=>core.played++;core.pause=()=>pauses++; // native commands do not synchronously emit stream events
+  core.emit(8);assert.equal(ui.playing,true);
+  ui.toggle();assert.equal(pauses,1);assert.equal(ui.playing,false);assert.equal(ui.visible,true);
+  ui.toggle();assert.equal(ui.playing,true);assert.equal(core.played,2);
+  core.stream.playing.emit(false);assert.equal(ui.playing,false,'native changes still reconcile button state');
+  clearTimeout(ui.hideTimer);player.clear();player.detach();
 });
 
 test('vertical gestures use device volume range and clamp brightness without dim overlays',()=>{

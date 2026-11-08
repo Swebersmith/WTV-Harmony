@@ -52,7 +52,8 @@ export struct NativePlayer {
   @State volumeMin: number = 0;
   @State volumeMax: number = 1;
   @State volumeReady: boolean = false;
-  @State requestedVolume?: number = undefined;
+  @State requestedVolume: number = 0;
+  @State volumeCommandIssued: boolean = false;
   @State volumePanelVisible: boolean = false;
   @State screenBrightness: number = 0.5;
   @State brightnessReady: boolean = false;
@@ -73,6 +74,7 @@ export struct NativePlayer {
     const revision = ++this.deviceRevision;
     this.volumeReady = this.volumeService.open((value: MediaVolume): void => {
       this.volumeLevel = value.level; this.volumeMin = value.min; this.volumeMax = value.max;
+      if (!this.volumeCommandIssued) this.requestedVolume = value.level;
       if (value.level > value.min) this.unmutedLevel = value.level;
       if (this.volumePanelVisible) this.showHint(`媒体音量 ${value.level} / ${value.max}`);
     });
@@ -94,7 +96,7 @@ export struct NativePlayer {
     }).catch((): void => { this.brightnessReady = false; });
   }
   closeDeviceControls(): void {
-    ++this.deviceRevision; clearTimeout(this.volumeTimer); this.volumePanelVisible = false; this.requestedVolume = undefined;
+    ++this.deviceRevision; clearTimeout(this.volumeTimer); this.volumePanelVisible = false; this.volumeCommandIssued = false;
     this.volumeReady = false; this.brightnessReady = false;
     this.volumeService.close(); this.brightnessService.close();
   }
@@ -103,10 +105,11 @@ export struct NativePlayer {
     const level = Math.round(Math.max(this.volumeMin,Math.min(this.volumeMax,value)));
     if (this.volumePanelVisible && level === this.requestedVolume) return;
     if (!this.volumePanelVisible && level === this.volumeLevel) return;
-    this.requestedVolume = level; this.volumePanelVisible = true;
+    this.requestedVolume = level; this.volumeCommandIssued = true; this.volumePanelVisible = true;
     this.showHint(`媒体音量 ${this.volumeLevel} / ${this.volumeMax}`);
     clearTimeout(this.volumeTimer);
-    this.volumeTimer = setTimeout((): void => { this.volumeService.refresh(); this.volumePanelVisible = false; this.requestedVolume = undefined; },1300);
+    // Hiding the prompt must never change its command value: undefined can reset AVVolumePanel to zero.
+    this.volumeTimer = setTimeout((): void => { this.volumePanelVisible = false; },1300);
   }
   setBrightness(value: number): void {
     if (this.brightnessService.set(value)) {
@@ -203,7 +206,12 @@ export struct NativePlayer {
       Blank()
       Row({space:22}) {
         this.skipButton(false)
-        this.icon(this.playing ? $r('app.media.player_pause') : $r('app.media.player_play'),this.playing ? '暂停' : '播放',(): void => this.toggle(),true)
+        // A state-dependent Resource passed by value to @Builder does not refresh its Image.
+        if (this.playing) {
+          this.icon($r('app.media.player_pause'),'暂停',(): void => this.toggle(),true)
+        } else {
+          this.icon($r('app.media.player_play'),'播放',(): void => this.toggle(),true)
+        }
         this.skipButton(true)
       }.width('100%').justifyContent(FlexAlign.Center)
       Blank()
@@ -222,7 +230,11 @@ export struct NativePlayer {
           Button('选集',{type:ButtonType.Normal}).fontSize(12).fontColor(WHITE).backgroundColor('#20FFFFFF').borderRadius(10).height(30).padding({left:10,right:10})
             .onClick((): void => this.openPanel('episodes'))
         }
-        this.icon(this.fullscreen ? $r('app.media.player_collapse') : $r('app.media.player_expand'),this.fullscreen ? '退出全屏' : '横屏全屏',(): void => { this.panel = ''; this.onFullscreen(!this.fullscreen); this.activity(); })
+        if (this.fullscreen) {
+          this.icon($r('app.media.player_collapse'),'退出全屏',(): void => { this.panel = ''; this.onFullscreen(false); this.activity(); })
+        } else {
+          this.icon($r('app.media.player_expand'),'横屏全屏',(): void => { this.panel = ''; this.onFullscreen(true); this.activity(); })
+        }
       }.width('100%')
     }.padding({left:14+(this.fullscreen ? this.getUIContext().px2vp(this.safeLeft) : 0),right:14+(this.fullscreen ? this.getUIContext().px2vp(this.safeRight) : 0),top:8,
       bottom:8+(this.fullscreen ? this.getUIContext().px2vp(this.safeBottom) : 0)})
@@ -292,7 +304,7 @@ export struct NativePlayer {
       if ((this.visible || !this.playing) && !this.locked && !this.panel) { this.controls() }
       if (this.buffering && !this.error) { LoadingProgress().width(34).height(34).color(MINT).hitTestBehavior(HitTestMode.None) }
       if (this.hint) { Text(this.hint).fontSize(13).fontColor(WHITE).backgroundColor('#C0192631').padding(12).borderRadius(12).hitTestBehavior(HitTestMode.None) }
-      if (this.active && this.foreground && this.volumeReady) {
+      if (this.active && this.foreground && this.volumeReady && this.volumeCommandIssued) {
         AVVolumePanel({volumeLevel:this.requestedVolume}).width(10).height(1)
           .visibility(this.volumePanelVisible ? Visibility.Visible : Visibility.Hidden).hitTestBehavior(HitTestMode.None)
       }

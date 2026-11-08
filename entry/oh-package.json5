@@ -1,1 +1,1 @@
-{"name":"entry","version":"1.5.0","description":"WTV native ArkUI client","main":"","author":"WTV","license":"MIT","dependencies":{"@mpv-ohos/mpv-arkts":"file:../mpv"}}
+{"name":"entry","version":"1.5.1","description":"WTV native ArkUI client","main":"","author":"WTV","license":"MIT","dependencies":{"@mpv-ohos/mpv-arkts":"file:../mpv"}}

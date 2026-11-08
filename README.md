@@ -4,7 +4,7 @@
 
 使用 ArkTS / ArkUI 构建的鸿蒙原生影视搜索与播放应用。
 
-当前版本 **1.5.0 开发预览**：HarmonyOS API 26，最低 API 23，原生播放库支持 **ARM64**。包名为 `io.webber.wtv`。
+当前版本 **1.5.1 开发预览**：HarmonyOS API 26，最低 API 23，原生播放库支持 **ARM64**。包名为 `io.webber.wtv`。
 
 [下载 HAP 与源码](https://github.com/Swebersmith/WTV-Harmony/releases) · [更新记录](CHANGELOG.md) · [第三方许可](THIRD_PARTY_NOTICES.md)
 
@@ -29,7 +29,7 @@
 
 ## 安装
 
-在 [Releases](https://github.com/Swebersmith/WTV-Harmony/releases) 下载 `WTV-Harmony-1.5.0-unsigned.hap`。
+在 [Releases](https://github.com/Swebersmith/WTV-Harmony/releases) 下载 `WTV-Harmony-1.5.1-unsigned.hap`。
 
 发布附件为**未签名调试包**，需要使用自己的有效鸿蒙签名身份签名后安装。升级时保持相同包名与签名身份，以便覆盖安装并保留本地数据。
 
@@ -53,7 +53,7 @@ Windows PowerShell 示例，建议将工具与构建目录放在英文路径：
 
 ## 检查
 
-使用 SDK 中的 TypeScript 转译器运行 39 项协议、播放生命周期、媒体音量监听和窗口亮度逻辑检查：
+使用 SDK 中的 TypeScript 转译器运行 42 项协议、播放生命周期、媒体音量监听、提示收起、播放切换和窗口亮度逻辑检查：
 
 ```powershell
 $env:ARKTS_TYPESCRIPT = 'C:\Tools\command-line-tools\sdk\default\openharmony\ets\build-tools\ets-loader\node_modules\typescript'
@@ -62,7 +62,7 @@ node --test .\checks\native.mjs
 
 也可运行 `npm ci --ignore-scripts` 与 `npm test`，使用固定版本的标准 TypeScript 转译器执行同一组逻辑检查。测试中的 HTTP、音量、窗口和 MPV 运行时使用替身。
 
-**验证范围：** API 26 编译、ARM64 原生库和 HAP 结构检查已通过；图标资源经过栅格化检查。1.5.0 的系统音量调节、窗口亮度、左滑删除、横屏和实际 UI 尚未完成本机连接真机验证，因此当前发布标记为开发预览。自动逻辑检查不能代替手机上的音量和亮度验证。
+**验证范围：** API 26 编译、ARM64 原生库和 HAP 结构检查已通过；图标资源经过栅格化检查。1.5.1 的系统音量调节、窗口亮度、左滑删除、横屏和实际 UI 尚未完成本机连接真机验证，因此当前发布标记为开发预览。自动逻辑检查不能代替手机上的音量和亮度验证。
 
 ## 许可与来源
 

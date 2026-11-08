@@ -95,7 +95,7 @@ export class NativePlayback extends XComponentController implements EventObserve
     this.events?.buffering(true);
     this.timeout = setTimeout((): void => { if (revision === this.revision) this.fail(-2); },30000);
     try {
-      this.player.open(new Media(request.url,{start:request.resume,httpHeaders:new Map<string,string>([['User-Agent','WTV-Harmony/1.5.0']])}),request.autoplay);
+      this.player.open(new Media(request.url,{start:request.resume,httpHeaders:new Map<string,string>([['User-Agent','WTV-Harmony/1.5.1']])}),request.autoplay);
       this.player.setSpeed(this.desiredRate); this.player.setVolume(this.desiredVolume*100);
     } catch { this.fail(-1); }
   }
@@ -127,11 +127,15 @@ export class NativePlayback extends XComponentController implements EventObserve
   start(): void {
     if (this.request) this.request.autoplay = true;
     this.completed = false;
-    try { if (this.loaded) this.player?.play(); } catch { this.fail(-1); }
+    try {
+      if (this.loaded && this.player) {
+        this.player.play(); this.events?.playing(true);
+      }
+    } catch { this.fail(-1); }
   }
   pause(): void {
     if (this.request) this.request.autoplay = false;
-    try { this.player?.pause(); } catch {}
+    try { this.player?.pause(); this.events?.playing(false); } catch {}
   }
   setCurrentTime(seconds: number): void {
     if (!this.loaded || !Number.isFinite(seconds)) return;
