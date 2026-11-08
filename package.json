@@ -1,6 +1,6 @@
 {
   "name": "wtv-harmony-checks",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "private": true,
   "scripts": { "test": "node --test checks/native.mjs" },
   "devDependencies": { "typescript": "5.9.3" }

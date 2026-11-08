@@ -147,6 +147,7 @@ struct Index {
       },
       time:(seconds: number): void => { this.elapsed = seconds; this.savePosition(); this.updateSystemPlayback(); },
       rate:(value: number): void => { this.playbackRate = value; this.updateSystemPlayback(); },
+      seekFailed:(): void => { if (this.foreground) this.notice('跳转未完成，请重试'); },
       playing:(value: boolean): void => this.playbackChanged(value),
       buffering:(value: boolean): void => { this.buffering = value; this.updateSystemPlayback(); },
       ended:(): void => { if (this.autoNext && this.currentIndex >= 0 && this.currentIndex+1 < this.currentEpisodes.length) this.neighbor(1); },
@@ -406,8 +407,8 @@ struct Index {
         play:(): void => this.playFromSystem(),pause:(): void => this.video.pause(),
         stop:(): void => { this.video.pause(); this.pip.stop(false).catch((): void => {}); },
         next:(): void => this.neighbor(1),previous:(): void => this.neighbor(-1),
-        seek:(seconds: number): void => this.video.setCurrentTime(seconds),
-        skip:(seconds: number): void => this.video.setCurrentTime(Math.min(Math.max(0,this.duration-0.2),Math.max(0,this.elapsed+seconds))),
+        seek:(seconds: number): void => this.seekFromSystem(seconds),
+        skip:(seconds: number): void => this.seekFromSystem(this.elapsed+seconds),
         rate:(value: number): void => this.video.setRate(value)
       });
       if (this.disposed) return;
@@ -421,6 +422,11 @@ struct Index {
     if (this.canPlayNative()) this.video.start();
   }
   updateSystemPlayback(): void { this.media.update(this.playing,this.elapsed,this.playbackRate,this.buffering).catch((): void => {}); }
+  seekFromSystem(seconds: number): void {
+    if (this.video.setCurrentTime(seconds)) {
+      this.media.update(this.playing,this.elapsed,this.playbackRate,this.buffering,true).catch((): void => {});
+    }
+  }
   updateMetadata(): void {
     if (!this.mediaUrl || this.webUrl) return;
     this.media.metadata(this.currentEpisode.url,this.currentMovie.title,this.currentEpisode.title,this.currentMovie.cover,this.duration).catch((): void => {});
@@ -454,7 +460,7 @@ struct Index {
       },
       restore:(): void => { AppStorage.setOrCreate('openPlayerRequest',Date.now()); },
       failed:(): void => { if (!this.foreground && !this.backgroundPlayback) this.video.pause(); this.notice('系统小窗暂不可用'); }
-    });
+    },this.getUIContext());
     this.syncPip();
   }
   syncPip(): void {
@@ -945,7 +951,7 @@ struct Index {
             .fontSize(12).fontColor(MUTED).lineHeight(19).width('100%')
         }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24)
         Column({space:8}) {
-          Text('WTV  1.7.0 · MPV').fontSize(15).fontWeight(FontWeight.Medium).fontColor(INK)
+          Text('WTV  1.7.1 · MPV').fontSize(15).fontWeight(FontWeight.Medium).fontColor(INK)
           Text('搜索、详情与片单使用鸿蒙原生页面。直链由原生播放器播放，网页线路由 ArkWeb 播放；部分验证和私有协议取决于线路本身。').fontSize(12).fontColor(MUTED).lineHeight(19)
         }.padding(18).width('100%')
       }.width('100%').padding({left:20,right:20,top:this.getUIContext().px2vp(this.safeTopPx)+64,bottom:this.getUIContext().px2vp(this.safeBottomPx)+88}).constraintSize({maxWidth:760})

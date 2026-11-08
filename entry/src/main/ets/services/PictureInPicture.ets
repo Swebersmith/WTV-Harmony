@@ -1,18 +1,33 @@
-import { PiPWindow } from '@kit.ArkUI';
+import { PiPWindow, typeNode, UIContext } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
+import { BusinessError } from '@kit.BasicServicesKit';
+import { NativePlayback } from './NativePlayback';
 
 export interface PictureCommands {
   play: () => void; pause: () => void; next: () => void; previous: () => void;
   changed: (active: boolean) => void; restore: () => void; failed: () => void;
 }
+// The PiP window owns a free node; the main HDS Navigation node is never reparented or cached.
+class PipSurface extends XComponentController {
+  private playback: NativePlayback;
+  constructor(playback: NativePlayback) { super(); this.playback = playback; }
+  onSurfaceCreated(id: string): void { this.playback.onPipSurfaceCreated(id); }
+  onSurfaceChanged(id: string, rect: SurfaceRect): void { this.playback.onPipSurfaceChanged(id,rect); }
+  onSurfaceDestroyed(id: string): void { this.playback.onPipSurfaceDestroyed(id); }
+}
 export class PictureInPicture {
   private controller?: PiPWindow.PiPController;
+  private node?: typeNode.XComponent;
+  private playback?: NativePlayback;
   private creating?: Promise<void>;
+  private starting?: Promise<void>;
   private closing?: Promise<void>;
   private commands?: PictureCommands;
   private active: boolean = false;
   private restoring: boolean = false;
+  private repairing: boolean = false;
   private autoStart: boolean = false;
+  private appliedAuto?: boolean;
   private disposed: boolean = false;
   private eligible: boolean = false;
   private playing: boolean = false;
@@ -20,17 +35,22 @@ export class PictureInPicture {
   private canNext: boolean = false;
   private width: number = 1920;
   private height: number = 1080;
+  private setActive(value: boolean): void {
+    this.playback?.usePipSurface(value);
+    if (this.active === value) return;
+    this.active = value; this.commands?.changed(value);
+  }
   private stateChanged: (state: PiPWindow.PiPState, reason: string) => void = (state: PiPWindow.PiPState): void => {
     if (this.disposed) return;
     if (state === PiPWindow.PiPState.ABOUT_TO_START || state === PiPWindow.PiPState.STARTED) {
-      this.active = true; this.restoring = false; this.commands?.changed(true); this.updateControls();
+      this.restoring = false; this.setActive(true); this.updateControls();
     } else if (state === PiPWindow.PiPState.ABOUT_TO_RESTORE) {
       this.restoring = true; this.commands?.restore();
     } else if (state === PiPWindow.PiPState.STOPPED) {
-      const restoring = this.restoring; this.active = false; this.restoring = false;
-      this.commands?.changed(false); if (!restoring) this.commands?.pause();
+      const restoring = this.restoring || this.repairing; this.restoring = false;
+      this.setActive(false); if (!restoring) this.commands?.pause();
     } else if (state === PiPWindow.PiPState.ERROR) {
-      this.active = false; this.commands?.changed(false); this.commands?.failed();
+      this.setActive(false); if (!this.repairing) this.commands?.failed();
     }
   };
   private controlEvent: (event: PiPWindow.ControlEventParam) => void = (event: PiPWindow.ControlEventParam): void => {
@@ -41,46 +61,73 @@ export class PictureInPicture {
     else if (event.controlType === PiPWindow.PiPControlType.VIDEO_PREVIOUS && this.canPrevious) this.commands?.previous();
   };
   isActive(): boolean { return this.active; }
-  async open(context: common.UIAbilityContext, surface: XComponentController, commands: PictureCommands): Promise<void> {
+  async open(context: common.UIAbilityContext, playback: NativePlayback, commands: PictureCommands, uiContext: UIContext): Promise<void> {
     await this.closing;
-    this.commands = commands;
+    this.commands = commands; this.playback = playback;
     if (this.controller) return;
     if (this.creating) return this.creating;
     if (!PiPWindow.isPiPEnabled()) throw new Error('当前设备暂不支持系统小窗');
     this.disposed = false;
-    this.creating = this.create(context,surface);
+    this.creating = this.create(context,playback,uiContext);
     try { await this.creating; } finally { this.creating = undefined; }
   }
-  private async create(context: common.UIAbilityContext, surface: XComponentController): Promise<void> {
-    const controller = await PiPWindow.create({context,componentController:surface,navigationId:'wtv-root-navigation',
-      templateType:PiPWindow.PiPTemplateType.VIDEO_PLAY,contentWidth:this.width,contentHeight:this.height,
-      controlGroups:[PiPWindow.VideoPlayControlGroup.VIDEO_PREVIOUS_NEXT]});
-    if (this.disposed) { controller.setAutoStartEnabled(false); return; }
-    this.controller = controller;
-    controller.on('stateChange',this.stateChanged); controller.on('controlEvent',this.controlEvent); this.updateControls();
+  private async create(context: common.UIAbilityContext, playback: NativePlayback, uiContext: UIContext): Promise<void> {
+    const surface = new PipSurface(playback);
+    const node = typeNode.createNode(uiContext,'XComponent',{type:XComponentType.SURFACE,controller:surface});
+    try {
+      const controller = await PiPWindow.create({context,componentController:surface,
+        templateType:PiPWindow.PiPTemplateType.VIDEO_PLAY,contentWidth:this.width,contentHeight:this.height,
+        controlGroups:[PiPWindow.VideoPlayControlGroup.VIDEO_PREVIOUS_NEXT]},node);
+      if (this.disposed) { controller.setAutoStartEnabled(false); node.dispose(); return; }
+      this.node = node; this.controller = controller; this.appliedAuto = undefined;
+      controller.on('stateChange',this.stateChanged); controller.on('controlEvent',this.controlEvent); this.updateControls();
+    } catch (error) { node.dispose(); throw error as Error; }
   }
   configure(auto: boolean, eligible: boolean, playing: boolean, previous: boolean, next: boolean): void {
     this.autoStart = auto; this.eligible = eligible; this.playing = playing; this.canPrevious = previous; this.canNext = next; this.updateControls();
   }
   private updateControls(): void {
-    try {
-      this.controller?.setAutoStartEnabled(this.autoStart && this.eligible && this.playing);
-      this.controller?.updatePiPControlStatus(PiPWindow.PiPControlType.VIDEO_PLAY_PAUSE,this.playing ? PiPWindow.PiPControlStatus.PLAY : PiPWindow.PiPControlStatus.PAUSE);
-      this.controller?.setPiPControlEnabled(PiPWindow.PiPControlType.VIDEO_PREVIOUS,this.canPrevious);
-      this.controller?.setPiPControlEnabled(PiPWindow.PiPControlType.VIDEO_NEXT,this.canNext);
-    } catch {}
+    const controller = this.controller; if (!controller) return;
+    const auto = this.autoStart && this.eligible && this.playing;
+    if (this.appliedAuto !== auto) {
+      try { controller.setAutoStartEnabled(auto); this.appliedAuto = auto; } catch {}
+    }
+    try { controller.updatePiPControlStatus(PiPWindow.PiPControlType.VIDEO_PLAY_PAUSE,this.playing ? PiPWindow.PiPControlStatus.PLAY : PiPWindow.PiPControlStatus.PAUSE); } catch {}
+    try { controller.setPiPControlEnabled(PiPWindow.PiPControlType.VIDEO_PREVIOUS,this.canPrevious); } catch {}
+    try { controller.setPiPControlEnabled(PiPWindow.PiPControlType.VIDEO_NEXT,this.canNext); } catch {}
   }
   size(width: number, height: number): void {
     if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
-    this.width = Math.round(width); this.height = Math.round(height);
-    try { this.controller?.updateContentSize(this.width,this.height); } catch {}
+    const w = Math.round(width), h = Math.round(height);
+    if (w === this.width && h === this.height) return;
+    this.width = w; this.height = h;
+    try { this.controller?.updateContentSize(w,h); } catch {}
   }
   async start(): Promise<void> {
     if (!this.controller || this.disposed || !this.eligible) throw new Error('请先播放原生视频，再开启小窗');
+    if (this.starting) return this.starting;
     if (this.active) return;
-    this.restoring = false; await this.controller.startPiP();
+    this.starting = this.startOnce();
+    try { await this.starting; } finally { this.starting = undefined; }
+  }
+  private async startOnce(): Promise<void> {
+    const controller = this.controller; if (!controller) return;
+    if (await controller.isPiPActive()) { this.setActive(true); return; }
+    if (this.active || this.disposed) return;
+    this.restoring = false;
+    try { await controller.startPiP(); }
+    catch (error) {
+      if ((error as BusinessError).code !== 1300012) throw new Error(`小窗启动失败（${(error as BusinessError).code || '未知错误'}）`);
+      if (this.active || await controller.isPiPActive()) { this.setActive(true); return; }
+      // A previous native startup is stuck. Retire it once before retrying; never loop starts.
+      this.repairing = true;
+      try { await controller.stopPiP(); if (!this.disposed) await controller.startPiP(); }
+      finally { this.repairing = false; }
+    }
+    if (!this.disposed && await controller.isPiPActive()) this.setActive(true);
   }
   async stop(restore: boolean = true): Promise<void> {
+    await this.starting?.catch((): void => {});
     if (!this.controller || !this.active) return;
     this.restoring = restore; await this.controller.stopPiP();
   }
@@ -91,14 +138,13 @@ export class PictureInPicture {
   }
   private async destroy(): Promise<void> {
     this.disposed = true;
-    await this.creating?.catch((): void => {});
+    await this.creating?.catch((): void => {}); await this.starting?.catch((): void => {});
     const controller = this.controller; this.controller = undefined;
-    try {
-      controller?.setAutoStartEnabled(false);
-      if (this.active) await controller?.stopPiP();
-    } finally {
+    try { controller?.setAutoStartEnabled(false); if (this.active) await controller?.stopPiP(); }
+    finally {
       controller?.off('stateChange'); controller?.off('controlEvent',this.controlEvent);
-      this.active = false; this.commands = undefined;
+      this.playback?.usePipSurface(false); this.node?.dispose(); this.node = undefined;
+      this.active = false; this.appliedAuto = undefined; this.commands = undefined; this.playback = undefined;
     }
   }
 }

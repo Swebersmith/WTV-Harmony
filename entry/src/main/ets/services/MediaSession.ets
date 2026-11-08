@@ -82,12 +82,12 @@ export class MediaSession {
       }
     });
   }
-  update(playing: boolean, seconds: number, rate: number = 1, buffering: boolean = false): Promise<void> {
+  update(playing: boolean, seconds: number, rate: number = 1, buffering: boolean = false, force: boolean = false): Promise<void> {
     const state = playing ? (buffering ? avSession.PlaybackState.PLAYBACK_STATE_BUFFERING : avSession.PlaybackState.PLAYBACK_STATE_PLAY)
       : avSession.PlaybackState.PLAYBACK_STATE_PAUSE;
     const key = `${state}|${rate}|${buffering}`, now = Date.now();
     const position = Number.isFinite(seconds) ? Math.max(0,seconds) : 0;
-    if (key === this.lastState && now-this.lastUpdate < 1000 && Math.abs(position-this.lastSeconds) < 2) return Promise.resolve();
+    if (!force && key === this.lastState && now-this.lastUpdate < 1000 && Math.abs(position-this.lastSeconds) < 2) return Promise.resolve();
     this.lastState = key; this.lastUpdate = now; this.lastSeconds = position;
     const value: avSession.AVPlaybackState = {state,speed:rate,
       position:{elapsedTime:Math.floor(position*1000),updateTime:systemDateTime.getUptime(systemDateTime.TimeType.STARTUP)}};
