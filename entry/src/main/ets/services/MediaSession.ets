@@ -52,7 +52,11 @@ export class MediaSession {
       await session.setAVMetadata(this.meta); await session.activate();
       if (revision !== this.revision) { await session.destroy(); return; }
       this.session = session; this.lastState = ''; this.lastUpdate = 0;
-    } catch (error) { await session.destroy().catch((): void => {}); throw error as Error; }
+      PlaybackDiagnostics.record('system AVSession active');
+    } catch (error) {
+      PlaybackDiagnostics.record(`system AVSession create failed ${String(error)}`);
+      await session.destroy().catch((): void => {}); throw error as Error;
+    }
   }
   private enqueue(task: (session: avSession.AVSession) => Promise<void>): Promise<void> {
     const revision = this.revision;

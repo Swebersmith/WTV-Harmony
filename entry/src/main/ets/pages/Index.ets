@@ -209,6 +209,7 @@ struct Index {
     return false;
   }
   onForeground(): void {
+    PlaybackDiagnostics.record(`foreground=${this.foreground} playing=${this.playing} backgroundEnabled=${this.backgroundPlayback} pip=${this.pipActive} task=${this.backgroundLease.isRunning()}`);
     if (!this.foreground) {
       if (!this.backgroundPlayback && !this.pipActive) this.video.pause();
       this.webPlayer.exitFullscreen(); this.persist(); this.keepAwake(false);
@@ -463,8 +464,10 @@ struct Index {
       if (!required) await this.backgroundLease.sync(false);
       await mode;
       if (required && serial === this.backgroundSerial) await this.backgroundLease.sync(true);
-    }).catch((): void => {
+    }).catch((error: Error): void => {
       if (this.disposed || serial !== this.backgroundSerial) return;
+      PlaybackDiagnostics.record(`background sync failed ${error.message}`);
+      if (!this.foreground && this.playing) PlaybackDiagnostics.record('pause: background task unavailable');
       if (!this.foreground && this.playing) this.video.pause();
       if (!this.backgroundWarning) { this.backgroundWarning = true; this.notice('后台播放暂不可用，请返回应用播放'); }
     });
@@ -528,6 +531,7 @@ struct Index {
     }).catch((): void => {});
   }
   playbackChanged(value: boolean): void {
+    if (this.playing !== value) PlaybackDiagnostics.record(`playback playing=${value} foreground=${this.foreground}`);
     if (value) { this.suppressedRecords.delete(this.activeEpisode.url); this.recordReady = true; }
     this.playing = value;
     this.keepAwake(value && this.foreground && this.tab === 1 && !this.pipActive);
@@ -970,7 +974,7 @@ struct Index {
             .fontSize(12).fontColor(MUTED).lineHeight(19).width('100%')
         }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24)
         Column({space:8}) {
-          Text('WTV  1.7.4 · MPV').fontSize(15).fontWeight(FontWeight.Medium).fontColor(INK)
+          Text('WTV  1.7.5 · MPV').fontSize(15).fontWeight(FontWeight.Medium).fontColor(INK)
           Text('搜索、详情与片单使用鸿蒙原生页面。直链由原生播放器播放，网页线路由 ArkWeb 播放；部分验证和私有协议取决于线路本身。').fontSize(12).fontColor(MUTED).lineHeight(19)
         }.padding(18).width('100%')
         Column({space:12}) {

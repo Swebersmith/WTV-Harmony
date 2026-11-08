@@ -31,6 +31,12 @@ VideoSurface 作为 NodeController，创建 typeNode XComponent；主页面通�
 
 自动小窗通过 setAutoStartEnabled 配置，由系统在主窗口退后台时触发；不在 onBackground 内手动调用 startPiP。用户手动打开时应用应位于前台。
 
+## 后台长时任务的类型映射
+
+按[官方长时任务接口](https://developer.huawei.com/consumer/cn/doc/harmonyos-references/js-apis-resourceschedule-backgroundtaskmanager/)的主 / 子类型对照表，已接入 AVSession 的播放使用 MODE_AV_PLAYBACK_AND_RECORD（12）与 SUBMODE_AVSESSION_AUDIO_PLAYBACK（5），对应 UIAbility backgroundModes 中的 avPlaybackAndRecord。MODE_AUDIO_PLAYBACK（2）对应 SUBMODE_NORMAL_NOTIFICATION（2），不能与子类型 5 混用。
+
+1.7.5 修正该配置并保留 KEEP_BACKGROUND_RUNNING 权限。任务在前台播放时申请，后台继续持有；暂停或服务结束后释放。通过 background task request / acquired / denied / canceled 日志可核对系统实际受理结果。
+
 ## Surface 回调接收者
 
 1.7.3 真机日志显示 typeNode 的 onSurfaceCreated 回调在 this.attach 处抛出 TypeError，最后一条记录是 surface created，未进入 MPV attach。三个生命周期回调必须捕获 NativePlayback 实例，不能依赖桥接调用时的动态 this。1.7.4 使用箭头函数，并通过 Reflect.apply 将回调接收者替换为无原型对象，验证创建、尺寸更新和销毁均作用于原播放器。

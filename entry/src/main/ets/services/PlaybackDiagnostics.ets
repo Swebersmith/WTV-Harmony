@@ -21,7 +21,7 @@ export class PlaybackDiagnostics {
       const current = `${PlaybackDiagnostics.directory}/current.log`;
       if (fs.accessSync(current) && fs.statSync(current).size > 0) fs.renameSync(current,`${PlaybackDiagnostics.directory}/previous.log`);
     } catch (error) { PlaybackDiagnostics.storageError = `日志文件初始化失败，当前仅保留内存记录：${String(error)}`; }
-    PlaybackDiagnostics.record(`session start WTV=1.7.4 API=${deviceInfo.sdkApiVersion}`);
+    PlaybackDiagnostics.record(`session start WTV=1.7.5 API=${deviceInfo.sdkApiVersion}`);
     PlaybackDiagnostics.record(`last exit reason=${launch.lastExitReason} message=${launch.lastExitMessage || '无'} detail=${JSON.stringify(launch.lastExitDetailInfo || {})}`);
     PlaybackDiagnostics.watcher = {name:'WTVFaultWatcher',appEventFilters:[{
       domain:hiAppEvent.domain.OS,names:[hiAppEvent.event.APP_CRASH,hiAppEvent.event.APP_FREEZE]
@@ -72,7 +72,7 @@ export class PlaybackDiagnostics {
     } catch (error) { PlaybackDiagnostics.storageError = `日志文件写入失败，部分事件仅保留在内存中：${String(error)}`; }
   }
   static report(): string {
-    let report = `WTV 1.7.4 / API ${deviceInfo.sdkApiVersion}\n导出时间：${new Date().toISOString()}\n${PlaybackDiagnostics.storageError}\n`;
+    let report = `WTV 1.7.5 / API ${deviceInfo.sdkApiVersion}\n导出时间：${new Date().toISOString()}\n${PlaybackDiagnostics.storageError}\n`;
     for (const name of ['fault.log','fault-previous.log','previous.log','current.log']) {
       try {
         const path = `${PlaybackDiagnostics.directory}/${name}`;

@@ -1,5 +1,14 @@
 # 更新记录
 
+## 1.7.5
+
+- 修正后台任务主 / 子类型错配：MODE_AV_PLAYBACK_AND_RECORD（12）搭配 SUBMODE_AVSESSION_AUDIO_PLAYBACK（5），并在 UIAbility 声明 avPlaybackAndRecord。
+- 在前台播放时取得任务，退后台继续持有；暂停 / 退出释放的原有逻辑保留。
+- 诊断新增任务申请、取得 ID、拒绝错误码和消息、主动释放及系统取消原因，记录前后台时的播放状态和任务状态。
+- 取消旧监听失败不再阻止注册新监听。
+- 测试替身按官方主 / 子类型对照表与实际 manifest 拒绝非法请求；新增前后台播放和任务诊断回归，共 77 项。
+- 原始日志包含历史 1.7.3 崩溃；本次 1.7.4 当前记录显示媒体已加载、手动小窗已启动，未记录任务申请结果，不能据此断言具体运行时错误码。后台修复仍需真机复测。
+
 ## 1.7.4
 
 - 根据 1.7.3 真机崩溃日志定位 TypeError: undefined is not callable，发生在 NativePlayback.onSurfaceCreated 调用 this.attach 时，MPV 初始化尚未开始。

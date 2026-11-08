@@ -4,7 +4,7 @@
 
 使用 ArkTS / ArkUI 构建的鸿蒙原生影视搜索与播放应用。
 
-当前版本 **1.7.4 开发预览**：HarmonyOS API 26，最低 API 23，原生播放库支持 **ARM64**。包名为 `io.webber.wtv`。
+当前版本 **1.7.5 开发预览**：HarmonyOS API 26，最低 API 23，原生播放库支持 **ARM64**。包名为 `io.webber.wtv`。
 
 [下载 HAP 与源码](https://github.com/Swebersmith/WTV-Harmony/releases) · [更新记录](CHANGELOG.md) · [第三方许可](THIRD_PARTY_NOTICES.md)
 
@@ -38,7 +38,7 @@
 
 ## 系统播控、后台和小窗
 
-原生 MPV 线路接入官方 [AVSession 后台播放方案](https://developer.huawei.com/consumer/cn/doc/HarmonyOS-Guides/avsession-background-scene/)，同时声明 `KEEP_BACKGROUND_RUNNING` 和 `audioPlayback` 后台模式。播放时申请 AVSession 音频播放长时任务，暂停、切源、切换网页线路或退出播放时释放；申请失败时不能保证后台续播，会给出提示。后台播放默认开启，可在设置页关闭。
+原生 MPV 线路接入官方 [AVSession 后台播放方案](https://developer.huawei.com/consumer/cn/doc/HarmonyOS-Guides/avsession-background-scene/)，同时声明 `KEEP_BACKGROUND_RUNNING` 和 `audioPlayback` / `avPlaybackAndRecord` 后台模式。播放时按官方对照表申请 `MODE_AV_PLAYBACK_AND_RECORD`（12）与 `SUBMODE_AVSESSION_AUDIO_PLAYBACK`（5）的音视频长时任务，暂停、切源、切换网页线路或退出播放时释放；申请失败时不能保证后台续播，会给出提示。后台播放默认开启，可在设置页关闭。任务应在前台开始播放时取得，退后台后继续持有；诊断日志记录申请、返回 ID、拒绝错误码、释放以及系统取消的原因。
 
 媒体实况窗由系统按照 AVSession 元数据、播放状态和 `setBackgroundPlayMode` 展示，不另发自定义实况窗。后台播放模式接口从 API 24 起可用；API 23 保留基础媒体卡片与后台任务接入，实况窗及具体样式由系统版本决定。点击系统卡片可返回当前播放页。
 
@@ -56,7 +56,7 @@
 
 ## 安装
 
-在 [Releases](https://github.com/Swebersmith/WTV-Harmony/releases) 下载 `WTV-Harmony-1.7.4-unsigned.hap`。
+在 [Releases](https://github.com/Swebersmith/WTV-Harmony/releases) 下载 `WTV-Harmony-1.7.5-unsigned.hap`。
 
 发布附件为**未签名调试包**，需要使用自己的有效鸿蒙签名身份签名后安装。升级时保持相同包名与签名身份，以便覆盖安装并保留本地数据。
 
@@ -80,7 +80,7 @@ Windows PowerShell 示例，建议将工具与构建目录放在英文路径：
 
 ## 检查
 
-使用 SDK 中的 TypeScript 转译器运行 75 项协议、播放生命周期、音量、亮度、后台任务、系统会话和画中画逻辑检查：
+使用 SDK 中的 TypeScript 转译器运行 77 项协议、播放生命周期、音量、亮度、后台任务、系统会话和画中画逻辑检查：
 
 ```powershell
 $env:ARKTS_TYPESCRIPT = 'C:\Tools\command-line-tools\sdk\default\openharmony\ets\build-tools\ets-loader\node_modules\typescript'
@@ -89,7 +89,7 @@ node --test .\checks\native.mjs
 
 也可运行 `npm ci --ignore-scripts` 与 `npm test`，使用固定版本的标准 TypeScript 转译器执行同一组逻辑检查。测试中的 HTTP、音量、窗口、AVSession、后台任务、PiP 和 MPV 运行时使用替身；页面事件处理器只验证逻辑，不模拟渲染。
 
-**验证范围：** API 26 编译、ARM64 原生库和 HAP 结构检查已通过。1.7.4 的控制中心卡片、锁屏卡片、实况窗、锁屏后台音频、系统 PiP 节点迁移和恢复尚未连接真机验证，因此当前发布标记为开发预览。逻辑替身不能验证系统 UI、系统后台调度或实际解码连续性。
+**验证范围：** API 26 编译、ARM64 原生库和 HAP 结构检查已通过。1.7.5 的控制中心卡片、锁屏卡片、实况窗、锁屏后台音频、系统 PiP 节点迁移和恢复尚未连接真机验证，因此当前发布标记为开发预览。逻辑替身不能验证系统 UI、系统后台调度或实际解码连续性。
 
 ## 许可与来源
 

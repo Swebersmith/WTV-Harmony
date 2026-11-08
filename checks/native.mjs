@@ -42,9 +42,15 @@ const audioApi = {StreamUsage:{STREAM_USAGE_MUSIC:'music'},getAudioManager:()=>(
 const abilityApi={wantAgent:{OperationType:{START_ABILITY:1},WantAgentFlags:{UPDATE_PRESENT_FLAG:1},getWantAgent:async info=>({info})}};
 const deviceInfo={sdkApiVersion:26};
 let taskGate,taskFailure=false,taskNumber=100;
-const backgroundApi={ContinuousTaskRequest:class{},BackgroundTaskMode:{MODE_AUDIO_PLAYBACK:2},BackgroundTaskSubmode:{SUBMODE_AVSESSION_AUDIO_PLAYBACK:5},
+const backgroundApi={ContinuousTaskRequest:class{},BackgroundTaskMode:{MODE_AUDIO_PLAYBACK:2,MODE_AV_PLAYBACK_AND_RECORD:12},BackgroundTaskSubmode:{SUBMODE_AVSESSION_AUDIO_PLAYBACK:5},
   starts:[],stops:[],listeners:new Set(),on(event,cb){this.listeners.add(cb);},off(event,cb){this.listeners.delete(cb);},
-  async startBackgroundRunning(context,request){if(taskFailure)throw Error('lease denied');this.starts.push(request);await taskGate;return {continuousTaskId:++taskNumber};},
+  async startBackgroundRunning(context,request){
+    const mapping=new Map([[2,new Set([2])],[12,new Set([4,5,6,7,8])]]);
+    if(!mapping.get(request.backgroundTaskModes[0])?.has(request.backgroundTaskSubmodes[0]))throw Object.assign(Error('invalid background mode/submode pair'),{code:401});
+    const manifest=JSON.parse(fs.readFileSync(path.resolve(here,'../entry/src/main/module.json5'),'utf8'));
+    const name=request.backgroundTaskModes[0]===12?'avPlaybackAndRecord':'audioPlayback';
+    if(!manifest.module.abilities[0].backgroundModes.includes(name))throw Object.assign(Error('background mode not declared'),{code:9800002});
+    if(taskFailure)throw Error('lease denied');this.starts.push(request);await taskGate;return {continuousTaskId:++taskNumber};},
   async stopBackgroundRunning(context,id){this.stops.push(id);this.listeners.forEach(cb=>cb({id}));}};
 let sessionGate,activationGate;
 const systemSessions=[];
@@ -139,6 +145,7 @@ const models = load('model/Models');
 const {Api,collectionPayload,collectionLines} = load('services/Api');
 const {AdFilter,originalTime,filteredTime,validatePrepared,prepareNativeMedia} = load('services/AdFilter');
 const {VideoSurface}=load('services/VideoSurface');
+const {PlaybackDiagnostics:appPlaybackDiagnostics}=load('services/PlaybackDiagnostics');
 const {NativePlayback} = load('services/NativePlayback');
 const {BackgroundPlayback}=load('services/BackgroundPlayback');
 const {MediaSession}=load('services/MediaSession');
@@ -497,7 +504,7 @@ const deferred=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{reso
 test('background playback deduplicates leases, releases on pause, and uses its own task ID',async()=>{
   const lease=new BackgroundPlayback();lease.open(appContext);const starts=backgroundApi.starts.length,stops=backgroundApi.stops.length;
   await Promise.all([lease.sync(true),lease.sync(true)]);assert.equal(lease.isRunning(),true);assert.equal(backgroundApi.starts.length,starts+1);
-  const request=backgroundApi.starts.at(-1);assert.deepEqual(request.backgroundTaskModes,[2]);assert.deepEqual(request.backgroundTaskSubmodes,[5]);
+  const request=backgroundApi.starts.at(-1);assert.deepEqual(request.backgroundTaskModes,[12]);assert.deepEqual(request.backgroundTaskSubmodes,[5]);
   assert.equal(request.wantAgent.info.wants[0].parameters['wtv.openPlayer'],true);
   await lease.sync(false);assert.equal(lease.isRunning(),false);assert.equal(backgroundApi.stops.length,stops+1);assert.equal(typeof backgroundApi.stops.at(-1),'number');
   await lease.close();assert.equal(backgroundApi.listeners.size,0);
@@ -736,4 +743,23 @@ test('typeNode lifecycle callbacks retain their playback owner when the framewor
   Reflect.apply(change,frameworkReceiver,['6541235193704',{surfaceWidth:640,surfaceHeight:360}]);assert.equal(core.properties.get('ohos-surface-size'),'640x360');
   core.stream.position.emit(12);assert.equal(times.at(-1),12);
   Reflect.apply(destroy,frameworkReceiver,['6541235193704']);assert.equal(core.surface,'');assert.equal(core.destroyed,0);playback.clear();playback.detach();
+});
+
+test('foreground playback acquires a valid declared AVSession task and keeps playing after the home gesture',async()=>{
+  const ui=new IndexHandlers();ui.initialize=()=>{};ui.notice=()=>{};ui.keepAwake=()=>{};ui.getUIContext=()=>({});ui.context=appContext;
+  ui.mediaUrl='https://cdn.example/background.mp4';ui.currentEpisode={url:ui.mediaUrl,title:'Episode'};ui.backgroundPlayback=true;ui.autoPip=true;ui.tab=1;ui.backgroundLease.open(appContext);ui.aboutToAppear();
+  ui.video.load(ui.mediaUrl,false);ui.video.onSurfaceCreated('task-main');const core=nativePlayers.at(-1);core.emit(8);
+  for(let i=0;i<4;i++)await flush();await ui.backgroundLease.queue;
+  assert.equal(ui.backgroundLease.isRunning(),true,'task must be acquired while still foreground');
+  const starts=backgroundApi.starts.length;ui.foreground=false;ui.onForeground();for(let i=0;i<3;i++)await flush();await ui.backgroundLease.queue;
+  assert.equal(ui.playing,true);assert.equal(ui.backgroundLease.isRunning(),true);assert.equal(backgroundApi.starts.length,starts);assert.equal(core.properties.get('vid'),'no');assert.equal(pipControllers.at(-1).auto,true);
+  ui.disposed=true;ui.video.clear();ui.video.detach();await ui.pip.close();await ui.backgroundLease.close();await ui.media.close();
+});
+
+test('task rejection and system cancellation retain actionable diagnostic results',async()=>{
+  const lease=new BackgroundPlayback();lease.open(appContext);taskFailure=true;
+  await assert.rejects(lease.sync(true),/denied/);taskFailure=false;assert.match(appPlaybackDiagnostics.report(),/background task denied/);
+  await lease.sync(true);assert.match(appPlaybackDiagnostics.report(),/background task acquired id=/);
+  backgroundApi.listeners.forEach(cb=>cb({id:taskNumber,reason:2,detailedReason:5}));
+  assert.match(appPlaybackDiagnostics.report(),/reason=2 detail=5 ownRelease=false/);assert.equal(lease.isRunning(),false);await lease.close();
 });
