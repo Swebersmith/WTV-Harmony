@@ -1,0 +1,11 @@
+.hvigor/
+node_modules/
+dist/
+oh_modules/
+local.properties
+**/build/
+last-build.log
+*.p12
+*.p7b
+*.cer
+signing*.json
