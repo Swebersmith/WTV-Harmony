@@ -3,7 +3,7 @@ import { window, LengthMetrics } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { systemShare } from '@kit.ShareKit';
 import { connection } from '@kit.NetworkKit';
-import { HdsTabs, HdsTabsController, HdsNavigation, HdsNavDestination, HdsNavigationTitleMode, TitleSize, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
+import { HdsTabs, HdsTabsController, HdsNavigation, HdsNavDestination, HdsNavigationTitleMode, HdsNavDestinationTitleMode, HdsNavigationTitleBarOptions, TitleSize, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { APP_THEME, FIELD, EMPHASIS } from '../design/Theme';
 import { applySystemBars } from '../design/WindowStyle';
 import { Api } from '../services/Api';
@@ -17,7 +17,7 @@ import { AdFilter, AdRange, originalTime, filteredTime, prepareNativeMedia } fro
 import { NativePlayback } from '../services/NativePlayback';
 import { NativePlayer } from '../components/NativePlayer';
 import { WebPlayer, WebPlayerHandle } from '../components/WebPlayer';
-import { Endpoint, Movie, Episode, Playlist, WatchRecord, PLATFORMS, PLATFORM_NAMES, emptyMovie,
+import { Endpoint, Movie, Episode, Playlist, WatchRecord, PlaybackTarget, PLATFORMS, PLATFORM_NAMES, emptyMovie,
   defaults, movieKey, validUrl, officialSearch, episodeLabel, mediaUrl as isMediaUrl } from '../model/Models';
 
 const BG: Resource = $r('app.color.page_background');
@@ -25,6 +25,7 @@ const CARD: Resource = $r('app.color.card_background');
 const INK: Resource = $r('app.color.text_primary');
 const MUTED: Resource = $r('app.color.text_secondary');
 const ACCENT: string = '#167E6B';
+const VERSION: string = '1.7.6';
 
 @Entry
 @Component
@@ -36,6 +37,11 @@ struct Index {
   private playerScrollBeforeFullscreen: number = 0;
   private libraryScroll: Scroller = new Scroller();
   private settingsScroll: Scroller = new Scroller();
+  private detailScroll: Scroller = new Scroller();
+  private endpointsScroll: Scroller = new Scroller();
+  private playbackScroll: Scroller = new Scroller();
+  private generalScroll: Scroller = new Scroller();
+  private aboutScroll: Scroller = new Scroller();
   private tabChangedAt: number = 0;
   private video: NativePlayback = new NativePlayback();
   private videoSurface: VideoSurface = new VideoSurface(this.video);
@@ -133,6 +139,8 @@ struct Index {
   @State castElapsed: number = 0;
   @State castPlaying: boolean = false;
   @State videoAspect: number = 16 / 9;
+  @State searchOpen: boolean = false;
+  @State parserOpen: boolean = false;
   @State pipActive: boolean = false;
   @State playbackRate: number = 1;
   @State network: string = '检查网络';
@@ -269,7 +277,7 @@ struct Index {
   }
   persist(): void {
     if (!this.ready) return;
-    this.store.settings = {site:this.site,searches:this.sources,parsers:this.parsers,autoNext:this.autoNext,schemaVersion:2,blockAds:this.blockAds,prepareService:this.prepareService,reduceMotion:this.reduceMotion,
+    this.store.settings = {site:this.site,searches:this.sources,parsers:this.parsers,autoNext:this.autoNext,schemaVersion:3,blockAds:this.blockAds,prepareService:this.prepareService,reduceMotion:this.reduceMotion,
       backgroundPlayback:this.backgroundPlayback,autoPip:this.autoPip};
     this.store.library = {favorites:this.favorites,records:this.records,queries:this.queries};
     this.store.save().catch((): void => this.notice('保存失败，本次修改可能无法保留'));
@@ -297,8 +305,8 @@ struct Index {
     if (!this.ready || this.loading) return;
     const query = this.query.trim();
     if (!query || query.length > 80) { this.notice('请输入 1–80 字的片名'); return; }
-    const source = this.sources[this.sourceIndex];
-    if (!source) { this.notice('请先添加搜索接口'); return; }
+    const source = this.activeSources()[this.sourceIndex];
+    if (!source) { this.notice('请先添加或启用搜索接口'); return; }
     if (more && query !== this.searchedQuery) { this.notice('片名已修改，请重新搜索'); return; }
     const serial = ++this.searchSerial;
     const requestedPage = more ? this.page+1 : 1;
@@ -343,8 +351,8 @@ struct Index {
     this.currentMovie = this.selected; this.currentEpisodes = episodes; this.currentIndex = index;
     this.currentEpisode = episodes[index]; this.inputUrl = episodes[index].url;
     this.resumeAt = this.records.find((r: WatchRecord): boolean => r.episode.url === episodes[index].url)?.seconds || 0;
-    if (this.parsers[this.parserIndex]?.type === 'direct' && !isMediaUrl(episodes[index].url)) {
-      const web = this.parsers.findIndex((parser: Endpoint): boolean => parser.type === 'web' && parser.enabled);
+    if (!isMediaUrl(episodes[index].url)) {
+      const web = this.activeParsers().findIndex((parser: Endpoint): boolean => parser.type === 'web' && parser.enabled);
       if (web >= 0) this.parserIndex = web;
     }
     this.nav.clear(); this.changeTab(1); this.resolve();
@@ -372,9 +380,15 @@ struct Index {
     this.syncBackground(); this.syncPip();
     this.originalMediaUrl = ''; this.filterFallbackUsed = false;
     try {
-      const parser = this.parsers[this.parserIndex];
-      if (!parser) throw new Error('请先添加解析接口');
-      const target = await this.api.playback(this.currentEpisode.url,parser);
+      const parser = this.activeParsers()[this.parserIndex];
+      let target: PlaybackTarget;
+      // Direct media links no longer need the removed pseudo parser, even when a JSON parser is selected.
+      if (isMediaUrl(this.currentEpisode.url)) {
+        target = {kind:'native',url:this.currentEpisode.url};
+      } else {
+        if (!parser) throw new Error('请先添加或启用解析接口');
+        target = await this.api.playback(this.currentEpisode.url,parser);
+      }
       if (serial !== this.resolveSerial) return;
       if (target.kind === 'web') {
         await this.pip.close(); await this.backgroundLease.sync(false); await this.media.close(); this.sessionReady = false;
@@ -609,6 +623,29 @@ struct Index {
       await controller.show(this.context,{selectionMode:systemShare.SelectionMode.SINGLE});
     } catch { this.notice('分享未完成，可复制视频链接'); }
   }
+  activeSources(): Endpoint[] { return this.sources.filter((item: Endpoint): boolean => item.enabled); }
+  activeParsers(): Endpoint[] { return this.parsers.filter((item: Endpoint): boolean => item.enabled); }
+  private endpointEnabled(item: Endpoint, enabled: boolean): Endpoint {
+    const copy: Endpoint = {id:item.id,name:item.name,url:item.url,type:item.type,apiKey:item.apiKey,enabled};
+    if (item.searchProtocol) copy.searchProtocol = item.searchProtocol;
+    return copy;
+  }
+  private clampEndpointIndexes(): void {
+    const sources = this.activeSources();
+    if (this.sourceIndex >= sources.length) this.sourceIndex = Math.max(0,sources.length-1);
+    const parsers = this.activeParsers();
+    if (this.parserIndex >= parsers.length) this.parserIndex = Math.max(0,parsers.length-1);
+  }
+  toggleEndpoint(kind: string, item: Endpoint, enabled: boolean): void {
+    if (kind === 'search') {
+      this.sources = this.sources.map((entry: Endpoint): Endpoint => entry.id === item.id ? this.endpointEnabled(entry,enabled) : entry);
+      this.clampEndpointIndexes(); this.invalidateSearch();
+    } else {
+      this.parsers = this.parsers.map((entry: Endpoint): Endpoint => entry.id === item.id ? this.endpointEnabled(entry,enabled) : entry);
+      this.clampEndpointIndexes();
+    }
+    this.persist();
+  }
   async syncSite(): Promise<void> {
     if (!validUrl(this.site,true)) { this.notice('站点地址需要使用 HTTPS'); return; }
     this.syncing = true;
@@ -616,8 +653,8 @@ struct Index {
       const config = await this.api.siteConfig(this.site);
       this.sources = this.sources.filter((s: Endpoint): boolean => !s.id.startsWith('site-')).concat(config.searches);
       this.parsers = this.parsers.filter((p: Endpoint): boolean => !p.id.startsWith('site-')).concat(config.parsers);
-      this.sourceIndex = 0; this.parserIndex = 0; this.invalidateSearch(); this.persist();
-      this.notice(`已同步 ${config.searches.length} 个搜索源、${config.parsers.length} 个网页播放线路`);
+      this.sourceIndex = 0; this.parserIndex = 0; this.clampEndpointIndexes(); this.invalidateSearch(); this.persist();
+      this.notice(`已同步 ${config.searches.length} 个搜索源、${config.parsers.length} 个播放接口`);
     } catch (error) { this.notice(this.message(error as Error)); }
     finally { this.syncing = false; }
   }
@@ -633,23 +670,44 @@ struct Index {
     if (!validUrl(url,true)) { this.editorError = '请填写 HTTPS 接口地址；解析地址可包含 {url} 占位符'; return; }
     if (this.editToken.length > 500 || /[\r\n]/.test(this.editToken)) { this.editorError = '令牌最长 500 字，且不能包含换行'; return; }
     const entries = this.editKind === 'search' ? this.sources : this.parsers;
+    const previous = this.editId ? entries.find((entry: Endpoint): boolean => entry.id === this.editId) : undefined;
     if (!this.editId && entries.length >= 30) { this.editorError = '每类最多添加 30 个接口'; return; }
-    const item: Endpoint = {id:this.editId || `custom-${Date.now()}`,name:this.editName.trim(),url,apiKey:this.editToken.trim(),enabled:true,
+    const item: Endpoint = {id:this.editId || `custom-${Date.now()}`,name:this.editName.trim(),url,apiKey:this.editToken.trim(),
+      enabled:previous ? previous.enabled : true,
       type:this.editKind === 'search' ? ['wtv','videosearch','maccms'][this.editType] : ['json','web'][this.editType]};
+    // A site-synced search keeps its wtv:<source> protocol even when only its name or root is edited.
+    if (this.editKind === 'search' && previous && previous.type.startsWith('wtv:')) {
+      item.type = previous.type;
+      if (previous.searchProtocol) item.searchProtocol = previous.searchProtocol;
+    }
     if (item.type === 'web') item.apiKey = '';
     const updated = this.editId ? entries.map((old: Endpoint): Endpoint => old.id === item.id ? item : old) : entries.concat([item]);
-    if (this.editKind === 'search') { this.sources = updated; this.sourceIndex = updated.findIndex((v: Endpoint): boolean => v.id === item.id); this.invalidateSearch(); }
-    else { this.parsers = updated; this.parserIndex = updated.findIndex((v: Endpoint): boolean => v.id === item.id); }
+    if (this.editKind === 'search') {
+      this.sources = updated; this.clampEndpointIndexes();
+      const active = this.activeSources();
+      const index = active.findIndex((entry: Endpoint): boolean => entry.id === item.id);
+      if (index >= 0) this.sourceIndex = index;
+      this.invalidateSearch();
+    } else {
+      this.parsers = updated; this.clampEndpointIndexes();
+      const active = this.activeParsers();
+      const index = active.findIndex((entry: Endpoint): boolean => entry.id === item.id);
+      if (index >= 0) this.parserIndex = index;
+    }
     this.sheet = false; this.persist(); this.notice('接口已保存');
+    if (this.editKind === 'search') this.searchOpen = true; else this.parserOpen = true;
   }
   removeEndpoint(kind: string, item: Endpoint): void {
     this.getUIContext().getPromptAction().showDialog({title:'删除接口',message:`确定删除“${item.name}”？`,buttons:[
       {text:'取消',color:ACCENT},{text:'删除',color:'#C04444'}
     ]}).then((result): void => {
       if (result.index !== 1) return;
-      if (kind === 'search') { this.sources = this.sources.filter((s: Endpoint): boolean => s.id !== item.id); this.sourceIndex = 0; this.invalidateSearch(); }
-      else { this.parsers = this.parsers.filter((p: Endpoint): boolean => p.id !== item.id); this.parserIndex = 0; }
-      this.persist();
+      if (kind === 'search') {
+        this.sources = this.sources.filter((s: Endpoint): boolean => s.id !== item.id); this.invalidateSearch();
+      } else {
+        this.parsers = this.parsers.filter((p: Endpoint): boolean => p.id !== item.id);
+      }
+      this.clampEndpointIndexes(); this.persist();
     });
   }
   clearHistory(): void {
@@ -676,7 +734,53 @@ struct Index {
     clearTimeout(this.undoTimer); this.undoRecordVisible = false; this.undoRecord = undefined; this.persist();
   }
   time(seconds: number): string { return `${Math.floor(seconds/60)}:${String(Math.floor(seconds%60)).padStart(2,'0')}`; }
+  private navTitle(title: string): HdsNavigationTitleBarOptions {
+    return {
+      avoidLayoutSafeArea:true,enableComponentSafeArea:false,
+      padding:{start:LengthMetrics.vp(20),end:LengthMetrics.vp(20)},
+      content:{title:{mainTitle:title,mainTitleSize:TitleSize.TITLE_ML}},
+      style:{
+        scrollEffectOpts:{enableScrollEffect:true,scrollEffectType:ScrollEffectType.IMMERSIVE_GRADIENT_BLUR,
+          blurEffectiveStartOffset:LengthMetrics.vp(0),blurEffectiveEndOffset:LengthMetrics.vp(56)},
+        originalStyle:{backgroundStyle:{backgroundColor:Color.Transparent,blurRadius:0},contentStyle:{titleStyle:{mainTitleColor:INK}}},
+        scrollEffectStyle:{backgroundStyle:{backgroundColor:BG,blurRadius:20},contentStyle:{titleStyle:{mainTitleColor:INK}}},
+        systemMaterialEffect:{materialType:this.tabMaterial,materialLevel:hdsMaterial.MaterialLevel.ADAPTIVE},thermoCtrl:true
+      }
+    };
+  }
+  clearQueries(): void {
+    this.queries = []; this.persist(); this.notice('搜索历史已清空');
+  }
+  endpointTypeLabel(item: Endpoint): string {
+    if (item.type === 'web') return '网页解析';
+    if (item.type === 'json') return 'JSON 解析';
+    if (item.type === 'maccms') return 'MacCMS';
+    if (item.type === 'videosearch') return 'VideoSearch';
+    if (item.type.startsWith('wtv')) return 'WTV 搜索';
+    return item.type.toUpperCase();
+  }
+  private settingsTop(): number { return this.getUIContext().px2vp(this.safeTopPx)+64; }
+  private settingsBottom(): number { return this.getUIContext().px2vp(this.safeBottomPx)+88; }
 
+  @Builder
+  settingsEntry(title: string, subtitle: string, target: string) {
+    Row() {
+      Column({space:6}) {
+        Text(title).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+        Text(subtitle).fontSize(12).fontColor(MUTED).width('100%').maxLines(2)
+      }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+      Text('›').fontSize(26).fontColor(ACCENT)
+    }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24)
+      .onClick((): void => { this.nav.pushPath({name:target},!this.reduceMotion); })
+      .stateStyles({pressed:{opacity:0.82}}).accessibilityText(title)
+  }
+  @Builder
+  switchRow(title: string, value: boolean, enabled: boolean, change: (value: boolean) => void) {
+    Row({space:12}) {
+      Text(title).fontSize(15).fontColor(INK).layoutWeight(1)
+      Toggle({type:ToggleType.Switch,isOn:value}).selectedColor(ACCENT).enabled(enabled).onChange(change)
+    }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24)
+  }
   @Builder
   tabLabel(label: string, index: number) {
     Row() {
@@ -725,12 +829,17 @@ struct Index {
             .enableKeyboardOnFocus(false)
             .searchButton('搜索').onChange((text: string): void => { this.query = text; })
             .onSubmit((): void => { this.search(); }).height(48).backgroundColor(FIELD).borderRadius(16)
-          if (this.sources.length) {
-            Select(this.sources.map((s: Endpoint): SelectOption => ({value:s.name})))
-              .selected(this.sourceIndex).value(this.sources[this.sourceIndex]?.name || '选择搜索源').width('100%')
+          if (this.activeSources().length) {
+            Select(this.activeSources().map((s: Endpoint): SelectOption => ({value:s.name})))
+              .selected(this.sourceIndex).value(this.activeSources()[this.sourceIndex]?.name || '没有启用的搜索源').width('100%')
               .onSelect((index: number): void => { this.sourceIndex = index; this.invalidateSearch(); })
-          } else { Button('添加搜索接口').onClick((): void => this.edit('search')) }
-          if (officialSearch(this.sources[this.sourceIndex])) {
+          } else {
+            Button(this.sources.length ? '启用搜索接口' : '添加搜索接口').onClick((): void => {
+              if (this.sources.length) this.nav.pushPath({name:'endpoints'},!this.reduceMotion);
+              else this.edit('search');
+            })
+          }
+          if (officialSearch(this.activeSources()[this.sourceIndex])) {
             Scroll() {
               Row({space:8}) {
               ForEach(PLATFORM_NAMES,(name: string,index: number) => {
@@ -773,13 +882,8 @@ struct Index {
   @Builder
   detailPage() {
     HdsNavDestination() {
-      Scroll() {
-        Column({space:18}) {
-          Row({space:10}) {
-            Button({type:ButtonType.Circle}) { Image($r('app.media.nav_back')).width(22).height(22) }
-              .width(40).height(40).backgroundColor(FIELD).accessibilityText('返回').onClick((): void => { ++this.detailSerial; this.nav.pop(!this.reduceMotion); })
-            Text('影片详情').fontSize(21).fontWeight(FontWeight.Bold).fontColor(INK)
-          }.width('100%').margin({bottom:6})
+      Scroll(this.detailScroll) {
+        Column({space:16}) {
           Row({space:16}) {
             if (validUrl(this.selected.cover,true)) { Image(this.selected.cover).width(104).height(150).borderRadius(16).objectFit(ImageFit.Cover) }
             Column({space:12}) {
@@ -796,26 +900,27 @@ struct Index {
             Button('重试').onClick((): void => { this.openMovie(this.selected); })
           }
           if (this.lines.length) {
-            Row() {
+            Row({space:10}) {
               Text(`选集 · ${this.lines[this.lineIndex]?.episodes.length || 0}`).fontSize(19).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
               Select(this.lines.map((line: Playlist): SelectOption => ({value:line.name})))
                 .selected(this.lineIndex).value(this.lines[this.lineIndex]?.name || '').onSelect((index: number): void => { this.lineIndex = index; })
             }.width('100%')
-            Flex({wrap:FlexWrap.Wrap,justifyContent:FlexAlign.SpaceBetween}) {
+            Flex({wrap:FlexWrap.Wrap}) {
               ForEach(this.lines[this.lineIndex]?.episodes || [],(episode: Episode,index: number) => {
-                Row() {
-                  Text(episodeLabel(episode,this.selected.title,index)).fontSize(14).fontColor(INK).lineHeight(21)
-                    .width('100%').textAlign(TextAlign.Center).wordBreak(WordBreak.BREAK_ALL)
-                }.width('48.5%').constraintSize({minHeight:52}).padding({left:10,right:10,top:14,bottom:14})
-                  .backgroundColor(CARD).borderRadius(12).margin({bottom:10}).onClick((): void => this.chooseEpisode(index))
+                Text(episodeLabel(episode,this.selected.title,index)).fontSize(13).fontColor(INK).lineHeight(19)
+                  .textAlign(TextAlign.Center).wordBreak(WordBreak.BREAK_ALL)
+                  .padding({left:12,right:12,top:10,bottom:10}).constraintSize({minWidth:56,maxWidth:'100%'})
+                  .backgroundColor(CARD).borderRadius(10).margin({right:8,bottom:8}).onClick((): void => this.chooseEpisode(index))
                   .stateStyles({pressed:{opacity:0.65}}).focusable(true).accessibilityRole(AccessibilityRoleType.BUTTON)
                   .accessibilityText(episode.title || `第 ${index+1} 集`)
               },(episode: Episode,index: number): string => `${index}|${episode.url}`)
             }.width('100%')
           }
-        }.padding({left:20,right:20,top:this.getUIContext().px2vp(this.safeTopPx)+8,bottom:this.getUIContext().px2vp(this.safeBottomPx)+24}).width('100%')
-      }.height('100%').width('100%')
-    }.hideTitleBar(true).backgroundColor(BG).systemTransition(this.reduceMotion ? NavigationSystemTransitionType.NONE : NavigationSystemTransitionType.CONTENT)
+        }.padding({left:20,right:20,top:this.settingsTop(),bottom:this.getUIContext().px2vp(this.safeBottomPx)+24}).width('100%')
+      }.height('100%').width('100%').scrollBar(BarState.Off).edgeEffect(EdgeEffect.Spring)
+    }.titleBar(this.navTitle('影片详情')).titleMode(HdsNavDestinationTitleMode.MINI).hideBackButton(false).hideTitleBar(false)
+      .bindToScrollable([this.detailScroll]).backgroundColor(BG)
+      .systemTransition(this.reduceMotion ? NavigationSystemTransitionType.NONE : NavigationSystemTransitionType.CONTENT)
       .onBackPressed((): boolean => { ++this.detailSerial; return false; })
   }
   @Builder
@@ -848,50 +953,44 @@ struct Index {
         if (!this.fullscreen && !this.webFullscreen) {
         if (this.playerError && !this.nativePlayerMounted) { this.errorPanel(this.playerError) }
         if (this.currentEpisode.url) {
-          Row() {
+          Row({space:12}) {
+            if (validUrl(this.currentMovie.cover,true)) {
+              Image(this.currentMovie.cover).width(56).height(78).borderRadius(10).objectFit(ImageFit.Cover)
+            }
             Column({space:4}) {
-              Text(this.currentMovie.title).fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).maxLines(1).width('100%')
-              Text(this.webUrl ? this.currentEpisode.title : `${this.currentEpisode.title}  ·  ${this.time(this.elapsed)} / ${this.time(this.duration)}`).fontSize(12).fontColor(MUTED).width('100%')
-            }.layoutWeight(1)
-            Button('分享').fontSize(13).backgroundColor(CARD).fontColor(ACCENT).onClick((): void => { this.share(); })
+              Text(this.currentMovie.title).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).maxLines(1).width('100%')
+              Text(this.webUrl ? this.currentEpisode.title : `${this.currentEpisode.title}  ·  ${this.time(this.elapsed)} / ${this.time(this.duration)}`).fontSize(11).fontColor(MUTED).width('100%')
+              Text(this.currentMovie.overview || '暂无简介').fontSize(11).fontColor(MUTED).maxLines(2).textOverflow({overflow:TextOverflow.Ellipsis}).width('100%')
+            }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+            Button('分享').fontSize(12).backgroundColor(CARD).fontColor(ACCENT).onClick((): void => { this.share(); })
           }.width('100%')
           Row({space:8}) {
-            Button('上一集',{type:ButtonType.Normal}).height(42).borderRadius(14).backgroundColor(CARD).fontColor(INK).layoutWeight(1).fontSize(13).enabled(this.currentIndex > 0).onClick((): void => this.neighbor(-1))
+            Button('上一集',{type:ButtonType.Normal}).height(40).borderRadius(12).backgroundColor(CARD).fontColor(INK).layoutWeight(1).fontSize(13).enabled(this.currentIndex > 0).onClick((): void => this.neighbor(-1))
             Text(this.webUrl ? '网页线路' : '原生播放').fontSize(11).fontColor(MUTED).padding(8)
-            Button('下一集',{type:ButtonType.Normal}).height(42).borderRadius(14).backgroundColor(CARD).fontColor(INK).layoutWeight(1).fontSize(13).enabled(this.currentIndex >= 0 && this.currentIndex+1 < this.currentEpisodes.length).onClick((): void => this.neighbor(1))
+            Button('下一集',{type:ButtonType.Normal}).height(40).borderRadius(12).backgroundColor(CARD).fontColor(INK).layoutWeight(1).fontSize(13).enabled(this.currentIndex >= 0 && this.currentIndex+1 < this.currentEpisodes.length).onClick((): void => this.neighbor(1))
           }.width('100%')
         }
-        if (!this.webUrl) {
-          Row({space:12}) {
-            Column({space:4}) {
-              Text('HLS 去插播').fontSize(14).fontWeight(FontWeight.Medium).fontColor(INK).width('100%')
-            }.layoutWeight(1)
-            Toggle({type:ToggleType.Switch,isOn:this.blockAds}).selectedColor(ACCENT).onChange((value: boolean): void => this.toggleAdFilter(value))
-          }.padding(16).width('100%').backgroundColor(CARD).borderRadius(16)
-        }
-        Column({space:14}) {
-          Text('链接与解析').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+        Column({space:9}) {
           TextInput({text:this.inputUrl,placeholder:'影片链接或 MP4 / M3U8 直链'}).onChange((text: string): void => { this.inputUrl = text; })
             .enableKeyboardOnFocus(false)
-            .type(InputType.URL).height(48).backgroundColor(FIELD).borderRadius(16)
-          Row({space:10}) {
-            PasteButton().fontSize(13).height(36).onClick((_event: ClickEvent,result: PasteButtonOnClickResult): void => { if (result === PasteButtonOnClickResult.SUCCESS) this.paste(); })
-            Select(this.parsers.map((p: Endpoint): SelectOption => ({value:`${p.name}${p.type === 'web' ? ' · 网页型' : ''}`})))
-              .selected(this.parserIndex).value(this.parsers[this.parserIndex]?.name || '先添加解析接口').layoutWeight(1)
+            .type(InputType.URL).height(42).backgroundColor(FIELD).borderRadius(14)
+          Row({space:8}) {
+            PasteButton().fontSize(12).height(34).onClick((_event: ClickEvent,result: PasteButtonOnClickResult): void => { if (result === PasteButtonOnClickResult.SUCCESS) this.paste(); })
+            Select(this.activeParsers().map((p: Endpoint): SelectOption => ({value:p.name})))
+              .selected(this.parserIndex).value(this.activeParsers()[this.parserIndex]?.name || '没有启用的播放接口').layoutWeight(1).height(34)
               .onSelect((index: number): void => { this.parserIndex = index; })
+            Button(this.resolving ? '解析中' : '播放',{type:ButtonType.Normal}).fontSize(13).height(34).borderRadius(10).backgroundColor(ACCENT).padding({left:16,right:16}).enabled(!this.resolving && this.ready)
+              .onClick((): void => this.playLink())
           }.width('100%')
-          Button(this.resolving ? '正在解析…' : '开始播放',{type:ButtonType.Normal}).borderRadius(14).width('100%').height(46).backgroundColor(ACCENT).enabled(!this.resolving && this.ready)
-            .onClick((): void => this.playLink())
-        }.padding(18).backgroundColor(CARD).borderRadius(24)
+        }.padding({left:14,right:14,top:12,bottom:12}).backgroundColor(CARD).borderRadius(20)
         if (this.currentEpisodes.length) {
-          Text('正在追 · 选集').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-          Flex({wrap:FlexWrap.Wrap,justifyContent:FlexAlign.SpaceBetween}) {
+          Text('正在追 · 选集').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+          Flex({wrap:FlexWrap.Wrap}) {
             ForEach(this.currentEpisodes,(episode: Episode,index: number) => {
-              Row() {
-                Text(episodeLabel(episode,this.currentMovie.title,index)).fontSize(13).lineHeight(20).width('100%').wordBreak(WordBreak.BREAK_ALL)
-                  .fontColor(index === this.currentIndex ? '#FFFFFF' : INK).textAlign(TextAlign.Center)
-              }.width('48.5%').constraintSize({minHeight:48}).padding(12).borderRadius(12).backgroundColor(index === this.currentIndex ? ACCENT : CARD)
-                .margin({bottom:8}).onClick((): void => this.playCurrentEpisode(index))
+              Text(episodeLabel(episode,this.currentMovie.title,index)).fontSize(12).lineHeight(18).wordBreak(WordBreak.BREAK_ALL)
+                .fontColor(index === this.currentIndex ? '#FFFFFF' : INK).textAlign(TextAlign.Center)
+                .padding({left:11,right:11,top:9,bottom:9}).constraintSize({minWidth:54,maxWidth:'100%'}).borderRadius(10)
+                .backgroundColor(index === this.currentIndex ? ACCENT : CARD).margin({right:8,bottom:8}).onClick((): void => this.playCurrentEpisode(index))
                 .stateStyles({pressed:{opacity:0.65}}).focusable(true).accessibilityRole(AccessibilityRoleType.BUTTON).accessibilityText(episode.title)
             })
           }.width('100%')
@@ -965,117 +1064,157 @@ struct Index {
   }
   @Builder
   endpointCard(item: Endpoint, kind: string) {
-    Column({space:8}) {
-      Row() {
-        Text(item.name).fontSize(16).fontWeight(FontWeight.Medium).fontColor(INK).layoutWeight(1)
-        Text(item.type === 'web' ? '网页解析' : item.type === 'page' ? '网页直开' : item.type.toUpperCase()).fontSize(10).fontColor(ACCENT)
+    Column({space:6}) {
+      Row({space:10}) {
+        Column({space:2}) {
+          Text(item.name).fontSize(14).fontWeight(FontWeight.Medium).fontColor(INK).width('100%')
+          Text(this.endpointTypeLabel(item)).fontSize(10).fontColor(ACCENT).width('100%')
+        }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+        Toggle({type:ToggleType.Switch,isOn:item.enabled}).selectedColor(ACCENT)
+          .onChange((value: boolean): void => this.toggleEndpoint(kind,item,value))
       }.width('100%')
-      if (item.url) { Text(item.url).fontSize(11).fontColor(MUTED).maxLines(2).textOverflow({overflow:TextOverflow.Ellipsis}).width('100%') }
-      Row({space:8}) {
-        if (!item.id.startsWith('site-') && item.type !== 'direct' && item.type !== 'page') {
-          Button('编辑').fontSize(12).fontColor(ACCENT).backgroundColor(BG).onClick((): void => this.edit(kind,item))
-        }
-        if (item.type !== 'direct' && item.type !== 'page') { Button('删除').fontSize(12).fontColor('#BC5050').backgroundColor(BG).onClick((): void => this.removeEndpoint(kind,item)) }
-        if (item.apiKey) { Text('已设置 Bearer 令牌').fontSize(11).fontColor(MUTED) }
+      Row({space:6}) {
+        Button('编辑',{type:ButtonType.Normal}).fontSize(12).height(30).fontColor(ACCENT).backgroundColor(BG).onClick((): void => this.edit(kind,item))
+        Button('删除',{type:ButtonType.Normal}).fontSize(12).height(30).fontColor('#BC5050').backgroundColor(BG).onClick((): void => this.removeEndpoint(kind,item))
+        if (item.apiKey) { Text('已设置 Bearer 令牌').fontSize(10).fontColor(MUTED) }
       }.width('100%')
-    }.padding(16).backgroundColor(CARD).borderRadius(24).width('100%')
+    }.padding({left:14,right:12,top:10,bottom:10}).backgroundColor(CARD).borderRadius(16).width('100%')
   }
   @Builder
   settingsPage() {
     Scroll(this.settingsScroll) {
-      Column({space:14}) {
-        Row() {
-          Column({space:6}) {
-            Text('接口设置').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-            Text(`${this.sources.length} 个搜索源 · ${this.parsers.length} 个解析与网页线路`).fontSize(12).fontColor(MUTED).width('100%')
-          }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-          Text('›').fontSize(26).fontColor(ACCENT)
-        }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24)
-          .onClick((): void => { this.nav.pushPath({name:'endpoints'},!this.reduceMotion); })
-          .stateStyles({pressed:{opacity:0.82}}).accessibilityText('接口设置，进入二级页面')
-        Row() {
-          Text('后台播放').fontSize(15).fontColor(INK).layoutWeight(1)
-          Toggle({type:ToggleType.Switch,isOn:this.backgroundPlayback}).selectedColor(ACCENT).onChange((value: boolean): void => this.setBackgroundPlayback(value))
-        }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24)
-        Row() {
-          Text('退出应用时自动小窗').fontSize(15).fontColor(INK).layoutWeight(1)
-          Toggle({type:ToggleType.Switch,isOn:this.autoPip}).selectedColor(ACCENT).enabled(this.backgroundPlayback)
-            .onChange((value: boolean): void => { this.autoPip = value; this.persist(); this.ensurePip().catch((): void => {}); this.syncPip(); })
-        }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24)
-        Row() {
-          Text('自动播放下一集').fontSize(15).fontColor(INK).layoutWeight(1)
-          Toggle({type:ToggleType.Switch,isOn:this.autoNext}).selectedColor(ACCENT).onChange((value: boolean): void => { this.autoNext = value; this.persist(); })
-        }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24)
-        Row({space:12}) {
-          Column({space:4}) {
-            Text('减少动效').fontSize(15).fontColor(INK).width('100%')
-            Text('使用更安静的页面切换与反馈').fontSize(12).fontColor(MUTED).width('100%')
-          }.layoutWeight(1)
-          Toggle({type:ToggleType.Switch,isOn:this.reduceMotion}).selectedColor(ACCENT)
-            .onChange((value: boolean): void => { this.reduceMotion = value; this.persist(); })
-        }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24)
-        Column({space:12}) {
-          Row() {
-            Text('原生播放器去插播').fontSize(15).fontColor(INK).layoutWeight(1)
-            Toggle({type:ToggleType.Switch,isOn:this.blockAds}).selectedColor(ACCENT).onChange((value: boolean): void => this.toggleAdFilter(value))
-          }.width('100%')
-          TextInput({text:this.prepareService,placeholder:'Crayon /api/player/prepare 的 HTTPS 地址'}).enableKeyboardOnFocus(false).type(InputType.URL).backgroundColor(BG)
-            .onChange((value: string): void => { this.prepareService = value; })
-          Button('保存服务地址',{type:ButtonType.Normal}).fontSize(13).borderRadius(12).backgroundColor(BG).fontColor(ACCENT)
-            .onClick((): void => { if (validUrl(this.prepareService,true)) { this.persist(); this.notice('去插播服务已保存'); } else this.notice('请输入 HTTPS 服务地址'); })
-          Text('使用你之前的 Crayon 服务过滤 HLS 清单，视频分片直连片源。仅处理识别出的插播分片，无法去除画面内嵌广告。')
-            .fontSize(12).fontColor(MUTED).lineHeight(19).width('100%')
-        }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24)
-        Column({space:8}) {
-          Text('WTV  1.7.6 · MPV').fontSize(15).fontWeight(FontWeight.Medium).fontColor(INK)
-          Text('搜索、详情与片单使用鸿蒙原生页面。直链由原生播放器播放，网页线路由 ArkWeb 播放；部分验证和私有协议取决于线路本身。').fontSize(12).fontColor(MUTED).lineHeight(19)
-        }.padding(18).width('100%')
-        Column({space:12}) {
-          Text('错误与播放日志').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-          Text('闪退后重新打开应用，在这里导出。包含上次退出原因、系统提供的崩溃堆栈和播放步骤；仅保存在本机。')
-            .fontSize(12).fontColor(MUTED).lineHeight(19).width('100%')
-          Button('导出错误日志 TXT',{type:ButtonType.Normal}).fontSize(14).borderRadius(12).width('100%').backgroundColor(ACCENT)
-            .onClick((): void => { this.exportErrorLog(); })
-          Row({space:12}) {
-            Button('复制日志',{type:ButtonType.Normal}).fontSize(13).backgroundColor(FIELD).fontColor(INK).layoutWeight(1)
-              .onClick((): void => { this.copyPlaybackDiagnostics(); })
-            Button('清空日志',{type:ButtonType.Normal}).fontSize(13).backgroundColor(FIELD).fontColor(MUTED).layoutWeight(1)
-              .onClick((): void => this.clearErrorLog())
-          }.width('100%')
-        }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24)
-      }.width('100%').padding({left:20,right:20,top:this.getUIContext().px2vp(this.safeTopPx)+64,bottom:this.getUIContext().px2vp(this.safeBottomPx)+88}).constraintSize({maxWidth:760})
+      Column({space:12}) {
+        this.settingsEntry('接口设置',`${this.sources.length} 个搜索源 · ${this.parsers.length} 个播放接口`,'endpoints')
+        this.settingsEntry('播放设置','后台播放 · 自动小窗 · HLS 去插播','playback')
+        this.settingsEntry('通用设置','减少动效 · 观看记录与搜索历史','general')
+        this.settingsEntry('应用版本',`WTV ${VERSION} · 错误与播放日志`,'about')
+      }.width('100%').padding({left:20,right:20,top:this.settingsTop(),bottom:this.settingsBottom()}).constraintSize({maxWidth:760})
     }.width('100%').height('100%').scrollBar(BarState.Off).edgeEffect(EdgeEffect.Spring)
+  }
+  @Builder
+  playbackSettingsPage() {
+    HdsNavDestination() {
+      Scroll(this.playbackScroll) {
+        Column({space:12}) {
+          this.switchRow('后台播放',this.backgroundPlayback,true,(value: boolean): void => this.setBackgroundPlayback(value))
+          this.switchRow('退出应用时自动小窗',this.autoPip,this.backgroundPlayback,(value: boolean): void => {
+            this.autoPip = value; this.persist(); this.ensurePip().catch((): void => {}); this.syncPip();
+          })
+          this.switchRow('自动播放下一集',this.autoNext,true,(value: boolean): void => { this.autoNext = value; this.persist(); })
+          Column({space:10}) {
+            Row() {
+              Text('原生播放器 HLS 去插播').fontSize(15).fontColor(INK).layoutWeight(1)
+              Toggle({type:ToggleType.Switch,isOn:this.blockAds}).selectedColor(ACCENT).onChange((value: boolean): void => this.toggleAdFilter(value))
+            }.width('100%')
+            TextInput({text:this.prepareService,placeholder:'Crayon /api/player/prepare 的 HTTPS 地址'}).enableKeyboardOnFocus(false).type(InputType.URL).height(42).backgroundColor(FIELD).borderRadius(14)
+              .onChange((value: string): void => { this.prepareService = value; })
+            Button('保存服务地址',{type:ButtonType.Normal}).fontSize(13).borderRadius(12).height(36).backgroundColor(BG).fontColor(ACCENT)
+              .onClick((): void => { if (validUrl(this.prepareService,true)) { this.persist(); this.notice('去插播服务已保存'); } else this.notice('请输入 HTTPS 服务地址'); })
+            Text('使用 Crayon 服务过滤 HLS 清单，视频分片直连片源。仅处理识别出的插播分片，无法去除画面内嵌广告。')
+              .fontSize(12).fontColor(MUTED).lineHeight(19).width('100%')
+          }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24)
+        }.width('100%').padding({left:20,right:20,top:this.settingsTop(),bottom:this.settingsBottom()}).constraintSize({maxWidth:760})
+      }.width('100%').height('100%').scrollBar(BarState.Off).edgeEffect(EdgeEffect.Spring)
+    }.titleBar(this.navTitle('播放设置')).titleMode(HdsNavDestinationTitleMode.MINI).hideBackButton(false).hideTitleBar(false)
+      .bindToScrollable([this.playbackScroll]).backgroundColor(BG)
+      .systemTransition(this.reduceMotion ? NavigationSystemTransitionType.NONE : NavigationSystemTransitionType.CONTENT)
+      .onBackPressed((): boolean => false)
+  }
+  @Builder
+  generalSettingsPage() {
+    HdsNavDestination() {
+      Scroll(this.generalScroll) {
+        Column({space:12}) {
+          this.switchRow('减少动效',this.reduceMotion,true,(value: boolean): void => { this.reduceMotion = value; this.persist(); })
+          Column({space:12}) {
+            Text('本机数据').fontSize(15).fontColor(INK).width('100%')
+            Button('清空观看记录与搜索历史',{type:ButtonType.Normal}).fontSize(14).height(42).borderRadius(12).width('100%').backgroundColor(FIELD).fontColor(INK)
+              .onClick((): void => this.clearHistory())
+            Button('仅清空最近搜索',{type:ButtonType.Normal}).fontSize(14).height(42).borderRadius(12).width('100%').backgroundColor(FIELD).fontColor(MUTED)
+              .onClick((): void => this.clearQueries())
+            Text('观看记录与收藏只保存在本机，不会上传。').fontSize(12).fontColor(MUTED).lineHeight(19).width('100%')
+          }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24)
+        }.width('100%').padding({left:20,right:20,top:this.settingsTop(),bottom:this.settingsBottom()}).constraintSize({maxWidth:760})
+      }.width('100%').height('100%').scrollBar(BarState.Off).edgeEffect(EdgeEffect.Spring)
+    }.titleBar(this.navTitle('通用设置')).titleMode(HdsNavDestinationTitleMode.MINI).hideBackButton(false).hideTitleBar(false)
+      .bindToScrollable([this.generalScroll]).backgroundColor(BG)
+      .systemTransition(this.reduceMotion ? NavigationSystemTransitionType.NONE : NavigationSystemTransitionType.CONTENT)
+      .onBackPressed((): boolean => false)
+  }
+  @Builder
+  aboutPage() {
+    HdsNavDestination() {
+      Scroll(this.aboutScroll) {
+        Column({space:14}) {
+          Column({space:8}) {
+            Text(`WTV  ${VERSION} · MPV`).fontSize(17).fontWeight(FontWeight.Medium).fontColor(INK).width('100%')
+            Text('原生鸿蒙影视搜索与播放应用。搜索、详情、片单与设置使用鸿蒙原生页面；直链由原生播放器播放，网页线路由 ArkWeb 播放。')
+              .fontSize(12).fontColor(MUTED).lineHeight(19).width('100%')
+          }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24)
+          Column({space:12}) {
+            Text('错误与播放日志').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+            Text('闪退后重新打开应用，在这里导出。包含上次退出原因、系统提供的崩溃堆栈和播放步骤；仅保存在本机。')
+              .fontSize(12).fontColor(MUTED).lineHeight(19).width('100%')
+            Button('导出错误日志 TXT',{type:ButtonType.Normal}).fontSize(14).borderRadius(12).width('100%').backgroundColor(ACCENT)
+              .onClick((): void => { this.exportErrorLog(); })
+            Row({space:12}) {
+              Button('复制日志',{type:ButtonType.Normal}).fontSize(13).backgroundColor(FIELD).fontColor(INK).layoutWeight(1)
+                .onClick((): void => { this.copyPlaybackDiagnostics(); })
+              Button('清空日志',{type:ButtonType.Normal}).fontSize(13).backgroundColor(FIELD).fontColor(MUTED).layoutWeight(1)
+                .onClick((): void => this.clearErrorLog())
+            }.width('100%')
+          }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24)
+        }.width('100%').padding({left:20,right:20,top:this.settingsTop(),bottom:this.settingsBottom()}).constraintSize({maxWidth:760})
+      }.width('100%').height('100%').scrollBar(BarState.Off).edgeEffect(EdgeEffect.Spring)
+    }.titleBar(this.navTitle('应用版本')).titleMode(HdsNavDestinationTitleMode.MINI).hideBackButton(false).hideTitleBar(false)
+      .bindToScrollable([this.aboutScroll]).backgroundColor(BG)
+      .systemTransition(this.reduceMotion ? NavigationSystemTransitionType.NONE : NavigationSystemTransitionType.CONTENT)
+      .onBackPressed((): boolean => false)
   }
   @Builder
   endpointsPage() {
     HdsNavDestination() {
-      Scroll() {
-        Column({space:14}) {
-          Row({space:10}) {
-            Button({type:ButtonType.Circle}) { Image($r('app.media.nav_back')).width(22).height(22) }
-              .width(40).height(40).backgroundColor(FIELD).accessibilityText('返回')
-              .onClick((): void => { this.nav.pop(!this.reduceMotion); })
-            Text('接口设置').fontSize(21).fontWeight(FontWeight.Bold).fontColor(INK)
-          }.width('100%').margin({bottom:6})
-          Column({space:12}) {
-            Text('WTV 站点同步').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-            TextInput({text:this.site,placeholder:'https://你的站点'}).enableKeyboardOnFocus(false).type(InputType.URL).onChange((value: string): void => { this.site = value; }).backgroundColor(BG)
-            Button(this.syncing ? '同步中…' : '同步搜索源与线路').width('100%').backgroundColor(ACCENT).enabled(!this.syncing && this.ready).onClick((): void => { this.syncSite(); })
-          }.padding(18).backgroundColor(CARD).borderRadius(24)
-          Row() {
-            Text('搜索接口').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
-            Button('＋ 添加').fontSize(13).fontColor(ACCENT).backgroundColor(CARD).onClick((): void => this.edit('search'))
-          }.width('100%').margin({top:4})
-          ForEach(this.sources,(item: Endpoint) => { this.endpointCard(item,'search') },(item: Endpoint): string => item.id)
-          Row() {
-            Text('解析接口').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
-            Button('＋ 添加').fontSize(13).fontColor(ACCENT).backgroundColor(CARD).onClick((): void => this.edit('parser'))
-          }.width('100%').margin({top:10})
-          ForEach(this.parsers,(item: Endpoint) => { this.endpointCard(item,'parser') },(item: Endpoint): string => item.id)
-        }.padding({left:20,right:20,top:this.getUIContext().px2vp(this.safeTopPx)+8,bottom:this.getUIContext().px2vp(this.safeBottomPx)+24})
+      Scroll(this.endpointsScroll) {
+        Column({space:12}) {
+          Column({space:10}) {
+            Text('WTV 站点同步').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+            TextInput({text:this.site,placeholder:'https://你的站点'}).enableKeyboardOnFocus(false).type(InputType.URL).height(42)
+              .onChange((value: string): void => { this.site = value; }).backgroundColor(FIELD).borderRadius(14)
+            Button(this.syncing ? '同步中…' : '同步搜索源与播放接口').width('100%').height(40).backgroundColor(ACCENT).borderRadius(12)
+              .enabled(!this.syncing && this.ready).onClick((): void => { this.syncSite(); })
+          }.padding(16).width('100%').backgroundColor(CARD).borderRadius(20)
+          Column({space:8}) {
+            Row({space:8}) {
+              Column({space:3}) {
+                Text('搜索接口').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+                Text(`${this.sources.length} 个 · ${this.activeSources().length} 启用`).fontSize(11).fontColor(MUTED).width('100%')
+              }.layoutWeight(1).onClick((): void => { this.searchOpen = !this.searchOpen; })
+              Button('＋ 添加',{type:ButtonType.Normal}).fontSize(12).fontColor(ACCENT).backgroundColor(BG).height(32).borderRadius(10).onClick((): void => this.edit('search'))
+              Text(this.searchOpen ? '⌃' : '⌄').fontSize(18).fontColor(MUTED).padding({left:6,right:6}).onClick((): void => { this.searchOpen = !this.searchOpen; })
+            }.padding(16).width('100%').backgroundColor(CARD).borderRadius(20)
+            if (this.searchOpen) {
+              ForEach(this.sources,(item: Endpoint) => { this.endpointCard(item,'search') },(item: Endpoint): string => item.id)
+            }
+          }.width('100%')
+          Column({space:8}) {
+            Row({space:8}) {
+              Column({space:3}) {
+                Text('播放接口').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+                Text(`${this.parsers.length} 个 · ${this.activeParsers().length} 启用`).fontSize(11).fontColor(MUTED).width('100%')
+              }.layoutWeight(1).onClick((): void => { this.parserOpen = !this.parserOpen; })
+              Button('＋ 添加',{type:ButtonType.Normal}).fontSize(12).fontColor(ACCENT).backgroundColor(BG).height(32).borderRadius(10).onClick((): void => this.edit('parser'))
+              Text(this.parserOpen ? '⌃' : '⌄').fontSize(18).fontColor(MUTED).padding({left:6,right:6}).onClick((): void => { this.parserOpen = !this.parserOpen; })
+            }.padding(16).width('100%').backgroundColor(CARD).borderRadius(20)
+            if (this.parserOpen) {
+              Text('MP4 / M3U8 直链会直接原生播放，不需要解析接口；网页链接再选择下面的接口。').fontSize(11).fontColor(MUTED).lineHeight(17).width('100%')
+              ForEach(this.parsers,(item: Endpoint) => { this.endpointCard(item,'parser') },(item: Endpoint): string => item.id)
+            }
+          }.width('100%')
+        }.padding({left:20,right:20,top:this.settingsTop(),bottom:this.getUIContext().px2vp(this.safeBottomPx)+24})
           .width('100%').constraintSize({maxWidth:760})
       }.height('100%').width('100%').scrollBar(BarState.Off).edgeEffect(EdgeEffect.Spring)
-    }.hideTitleBar(true).backgroundColor(BG)
+    }.titleBar(this.navTitle('接口设置')).titleMode(HdsNavDestinationTitleMode.MINI).hideBackButton(false).hideTitleBar(false)
+      .bindToScrollable([this.endpointsScroll]).backgroundColor(BG)
       .systemTransition(this.reduceMotion ? NavigationSystemTransitionType.NONE : NavigationSystemTransitionType.CONTENT)
       .onBackPressed((): boolean => false)
   }
@@ -1083,12 +1222,12 @@ struct Index {
   endpointEditor() {
     Scroll() {
       Column({space:18}) {
-        Text(this.editKind === 'search' ? '搜索接口' : '解析与播放器接口').fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+        Text(this.editKind === 'search' ? '搜索接口' : '播放接口').fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
         TextInput({text:this.editName,placeholder:'接口名称'}).enableKeyboardOnFocus(false).maxLength(60).onChange((text: string): void => { this.editName = text; }).backgroundColor(FIELD).borderRadius(16)
         if (this.editKind === 'search') {
           Select([{value:'WTV 站点 API'},{value:'VideoSearch 五平台 API'},{value:'MacCMS JSON / XML 采集 API'}])
             .selected(this.editType).value(['WTV 站点 API','VideoSearch 五平台 API','MacCMS JSON / XML 采集 API'][this.editType])
-            .onSelect((index: number): void => { this.editType = index; }).width('100%')
+            .onSelect((index: number): void => { this.editType = index; }).width('100%').enabled(!this.editId.startsWith('site-'))
         } else {
           Select([{value:'JSON 解析 → 原生播放'},{value:'网页解析 / 网页播放器'}]).selected(this.editType)
             .value(['JSON 解析 → 原生播放','网页解析 / 网页播放器'][this.editType]).width('100%')
@@ -1115,6 +1254,9 @@ struct Index {
   destination(name: string) {
     if (name === 'detail') { this.detailPage() }
     else if (name === 'endpoints') { this.endpointsPage() }
+    else if (name === 'playback') { this.playbackSettingsPage() }
+    else if (name === 'general') { this.generalSettingsPage() }
+    else if (name === 'about') { this.aboutPage() }
   }
   build() {
     WithTheme({theme:APP_THEME}) {

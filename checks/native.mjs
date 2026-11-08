@@ -669,6 +669,17 @@ test('a seek while only audio is active re-seeks video when the player returns',
   assert.equal(core.lastCommand[1],'48.000','video is realigned to the audio-only seek target');
   player.clear();player.detach();assert.equal(core.destroyed,1);
 });
+test('endpoint enable toggles drive the active source and parser lists',()=>{
+  const ui=new IndexHandlers();
+  const first={id:'a',name:'A',url:'https://a.example',type:'wtv',apiKey:'',enabled:true};
+  const second={id:'b',name:'B',url:'https://b.example',type:'maccms',apiKey:'',enabled:true};
+  const web={id:'p1',name:'网页',url:'https://p.example?url=',type:'web',apiKey:'',enabled:true};
+  const json={id:'p2',name:'JSON',url:'https://j.example',type:'json',apiKey:'',enabled:true};
+  ui.sources=[first,second];ui.parsers=[web,json];ui.sourceIndex=0;ui.parserIndex=0;ui.ready=false;
+  ui.toggleEndpoint('search',first,false);assert.deepEqual(ui.activeSources().map(value=>value.id),['b']);
+  ui.toggleEndpoint('parser',web,false);assert.deepEqual(ui.activeParsers().map(value=>value.id),['p2']);
+  ui.toggleEndpoint('search',first,true);assert.deepEqual(ui.activeSources().map(value=>value.id),['a','b']);
+});
 test('entering the background keeps opted-in playback, but pauses when both background and PiP are disabled',async()=>{
   const ui=new IndexHandlers();let pauses=0,audioOnly,retained;
   ui.video={pause:()=>pauses++,setAudioOnly:n=>audioOnly=n,setKeepAlive:n=>retained=n};ui.keepAwake=()=>{};

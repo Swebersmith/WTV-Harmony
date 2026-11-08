@@ -41,10 +41,9 @@ export function defaults(): Settings {
   return {
     site:'https://wtv.webber.qzz.io',
     searches:[{id:'site-default',name:'WTV 五平台搜索',url:'https://wtv.webber.qzz.io',type:'wtv',apiKey:'',enabled:true}],
-    parsers:[{id:'direct',name:'原生直链播放',url:'',type:'direct',apiKey:'',enabled:true},
-      {id:'web-lx',name:'LX 解析',url:'https://jx.lxyy.club/index.php?url=',type:'web',apiKey:'',enabled:true},
-      {id:'web-qige',name:'七哥解析',url:'https://jx.202617.xyz/tv.php?url=',type:'web',apiKey:'',enabled:true},
-      {id:'page',name:'网页链接直开',url:'',type:'page',apiKey:'',enabled:true}],autoNext:true,schemaVersion:2,
+    parsers:[{id:'web-lx',name:'LX 解析',url:'https://jx.lxyy.club/index.php?url=',type:'web',apiKey:'',enabled:true},
+      {id:'web-qige',name:'七哥解析',url:'https://jx.202617.xyz/tv.php?url=',type:'web',apiKey:'',enabled:true}],
+    autoNext:true,schemaVersion:3,
     blockAds:true,prepareService:'https://crap.webber.qzz.io/api/player/prepare'
   };
 }

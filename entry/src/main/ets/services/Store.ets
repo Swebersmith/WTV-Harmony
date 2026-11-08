@@ -11,13 +11,11 @@ export class Store {
     const config = await this.prefs.get('settings','') as string;
     const library = await this.prefs.get('library','') as string;
     if (config) { try { this.settings = JSON.parse(config) as Settings; } catch { this.settings = defaults(); } }
-    if ((this.settings.schemaVersion || 1) < 2) {
-      if (!this.settings.parsers.some((p): boolean => p.type === 'web')) {
-        this.settings.parsers = this.settings.parsers.concat(defaults().parsers.filter((p): boolean => p.type === 'web'));
-      }
-      if (!this.settings.parsers.some((p): boolean => p.type === 'page')) this.settings.parsers.push(defaults().parsers[3]);
-      this.settings.schemaVersion = 2;
-    }
+    if (!Array.isArray(this.settings.searches)) this.settings.searches = defaults().searches;
+    if (!Array.isArray(this.settings.parsers)) this.settings.parsers = defaults().parsers;
+    // 1.7.6 removes the built-in direct/page pseudo parsers; direct media links are recognised in playback.
+    this.settings.parsers = this.settings.parsers.filter((parser): boolean => parser.type !== 'direct' && parser.type !== 'page');
+    if ((this.settings.schemaVersion || 1) < 3) this.settings.schemaVersion = 3;
     if (library) { try { this.library = JSON.parse(library) as Library; } catch { this.library = {favorites:[],records:[],queries:[]}; } }
   }
   async save(): Promise<void> {
