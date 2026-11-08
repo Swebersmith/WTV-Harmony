@@ -1298,7 +1298,7 @@ struct Index {
               Text(this.searchOpen ? '⌃' : '⌄').fontSize(18).fontColor(MUTED).padding({left:6,right:6}).onClick((): void => this.toggleSection('search'))
             }.padding(16).width('100%').backgroundColor(CARD).borderRadius(20)
             if (this.searchOpen) {
-              ForEach(this.sources,(item: Endpoint,index: number) => { this.endpointCard(item,'search',index) },(item: Endpoint): string => item.id)
+              ForEach(this.sources,(item: Endpoint,index: number) => { this.endpointCard(item,'search',index) },(item: Endpoint): string => `${item.id}|${item.name}|${item.url}|${item.type}|${item.enabled}`)
             }
           }.width('100%')
           Column({space:8}) {
@@ -1312,7 +1312,7 @@ struct Index {
             }.padding(16).width('100%').backgroundColor(CARD).borderRadius(20)
             if (this.parserOpen) {
               Text('MP4 / M3U8 直链会直接原生播放，不需要解析接口；网页链接再选择下面的接口。').fontSize(11).fontColor(MUTED).lineHeight(17).width('100%')
-              ForEach(this.parsers,(item: Endpoint,index: number) => { this.endpointCard(item,'parser',index) },(item: Endpoint): string => item.id)
+              ForEach(this.parsers,(item: Endpoint,index: number) => { this.endpointCard(item,'parser',index) },(item: Endpoint): string => `${item.id}|${item.name}|${item.url}|${item.type}|${item.enabled}`)
             }
           }.width('100%')
         }.padding({left:20,right:20,top:this.settingsTop(),bottom:this.getUIContext().px2vp(this.safeBottomPx)+24})
