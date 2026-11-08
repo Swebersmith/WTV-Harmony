@@ -15,17 +15,3 @@ export const APP_THEME: CustomTheme = {
     compBackgroundSecondary:FIELD,compBackgroundEmphasize:BRAND,interactiveActive:EMPHASIS
   }
 };
-
-@Component
-export struct PageHeader {
-  @Prop title: string = '';
-  @Prop subtitle: string = '';
-  build() {
-    Column({space:7}) {
-      Text('WTV  /  CINEMA').fontSize(10).fontWeight(FontWeight.Medium).letterSpacing(2).fontColor(EMPHASIS)
-        .width('100%').accessibilityLevel('no')
-      Text(this.title).fontSize(30).fontWeight(FontWeight.Bold).fontColor(TEXT).width('100%')
-      Text(this.subtitle).fontSize(13).fontColor(SECONDARY).lineHeight(20).width('100%')
-    }.width('100%').alignItems(HorizontalAlign.Start).padding({top:14,bottom:10})
-  }
-}

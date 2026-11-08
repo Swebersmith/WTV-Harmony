@@ -95,7 +95,7 @@ export class NativePlayback extends XComponentController implements EventObserve
     this.events?.buffering(true);
     this.timeout = setTimeout((): void => { if (revision === this.revision) this.fail(-2); },30000);
     try {
-      this.player.open(new Media(request.url,{start:request.resume,httpHeaders:new Map<string,string>([['User-Agent','WTV-Harmony/1.5.1']])}),request.autoplay);
+      this.player.open(new Media(request.url,{start:request.resume,httpHeaders:new Map<string,string>([['User-Agent','WTV-Harmony/1.6.0']])}),request.autoplay);
       this.player.setSpeed(this.desiredRate); this.player.setVolume(this.desiredVolume*100);
     } catch { this.fail(-1); }
   }

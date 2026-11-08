@@ -1,10 +1,10 @@
 import { common } from '@kit.AbilityKit';
-import { window } from '@kit.ArkUI';
+import { window, LengthMetrics } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { systemShare } from '@kit.ShareKit';
 import { connection } from '@kit.NetworkKit';
-import { HdsTabs, HdsTabsController, hdsMaterial } from '@kit.UIDesignKit';
-import { APP_THEME, FIELD, EMPHASIS, PageHeader } from '../design/Theme';
+import { HdsTabs, HdsTabsController, HdsNavigation, HdsNavDestination, HdsNavigationTitleMode, TitleSize, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
+import { APP_THEME, FIELD, EMPHASIS } from '../design/Theme';
 import { applySystemBars } from '../design/WindowStyle';
 import { Api } from '../services/Api';
 import { Store } from '../services/Store';
@@ -484,22 +484,17 @@ struct Index {
 
   @Builder
   tabLabel(label: string, index: number) {
-    Column({space:3}) {
-      SymbolGlyph(this.tabSymbol(index)).fontSize(24).fontWeight(FontWeight.Bold).width(28).height(28)
+    Row() {
+      SymbolGlyph(this.tabSymbol(index)).fontSize(26).fontWeight(FontWeight.Bold).width(32).height(32)
         .fontColor([this.tab === index ? EMPHASIS : MUTED])
-      Text(label).fontSize(11).fontWeight(FontWeight.Bold)
-        .fontColor(this.tab === index ? EMPHASIS : MUTED).textAlign(TextAlign.Center).width('100%')
-    }.height(60).justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center).width('100%').accessibilityText(label)
+    }.height(56).justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center).width('100%')
+      .accessibilityText(label).accessibilityDescription(this.tab === index ? '已选中' : '切换栏目')
   }
   tabSymbol(index: number): Resource {
     if (index === 0) return $r('sys.symbol.magnifyingglass');
     if (index === 1) return $r('sys.symbol.play_circle');
     if (index === 2) return $r('sys.symbol.heart');
     return $r('sys.symbol.gearshape');
-  }
-  @Builder
-  heading(title: string, subtitle: string) {
-    PageHeader({title,subtitle})
   }
   @Builder
   errorPanel(message: string) {
@@ -529,9 +524,9 @@ struct Index {
   discover() {
     Scroll(this.discoverScroll) {
       Column({space:14}) {
-        this.heading('发现好戏','把想看的，留给此刻')
         Column({space:13}) {
           Search({value:this.query,placeholder:'搜索电影、剧集、综艺'})
+            .enableKeyboardOnFocus(false)
             .searchButton('搜索').onChange((text: string): void => { this.query = text; })
             .onSubmit((): void => { this.search(); }).height(48).backgroundColor(FIELD).borderRadius(16)
           if (this.sources.length) {
@@ -564,15 +559,6 @@ struct Index {
               })
             }.width('100%')
           }
-          Row({space:14}) {
-            Column({space:8}) {
-              Text('好戏，现在开始').fontSize(21).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-              Text('有视频链接？从这里直接播放').fontSize(12).fontColor(MUTED).width('100%')
-              Button('打开播放器',{type:ButtonType.Normal}).fontSize(13).height(40).borderRadius(14)
-                .backgroundColor(ACCENT).fontColor(Color.White).onClick((): void => this.changeTab(1))
-            }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-            SymbolGlyph($r('sys.symbol.play_circle')).fontSize(54).fontColor([EMPHASIS]).opacity(0.8).accessibilityLevel('no')
-          }.width('100%').padding(22).backgroundColor($r('app.color.hero_background')).borderRadius(24).margin({top:4})
         }
         if (this.loading) { LoadingProgress().width(36).height(36).color(ACCENT) }
         if (this.searchError) { this.errorPanel(this.searchError); Button('重新搜索').onClick((): void => { this.search(); }) }
@@ -585,12 +571,12 @@ struct Index {
           if (this.hasMore) { Button(this.loading ? '正在加载…' : '加载下一页').enabled(!this.loading).onClick((): void => { this.search(true); }) }
         }
         Text(this.network).fontSize(11).fontColor(MUTED).margin({top:10,bottom:10})
-      }.padding({left:20,right:20,top:this.getUIContext().px2vp(this.safeTopPx)+8,bottom:this.getUIContext().px2vp(this.safeBottomPx)+96}).width('100%').constraintSize({maxWidth:760})
+      }.padding({left:20,right:20,top:this.getUIContext().px2vp(this.safeTopPx)+64,bottom:this.getUIContext().px2vp(this.safeBottomPx)+88}).width('100%').constraintSize({maxWidth:760})
     }.width('100%').height('100%').scrollBar(BarState.Off).edgeEffect(EdgeEffect.Spring)
   }
   @Builder
   detailPage() {
-    NavDestination() {
+    HdsNavDestination() {
       Scroll() {
         Column({space:18}) {
           Row({space:10}) {
@@ -640,7 +626,6 @@ struct Index {
   playerPage() {
     Scroll(this.playerScroll) {
       Column({space:this.fullscreen || this.webFullscreen ? 0 : 16}) {
-        if (!this.fullscreen && !this.webFullscreen) { this.heading('正在播放','让画面留在这里，好戏接着看') }
         Stack() {
           if (this.nativePlayerMounted) {
             NativePlayer({controller:this.video,title:this.currentMovie.title,subtitle:this.currentEpisode.title,status:this.adStatus,error:this.playerError,
@@ -681,7 +666,6 @@ struct Index {
           Row({space:12}) {
             Column({space:4}) {
               Text('HLS 去插播').fontSize(14).fontWeight(FontWeight.Medium).fontColor(INK).width('100%')
-              Text(this.adStatus || '使用 Crayon 清单服务识别插播分片').fontSize(11).fontColor(MUTED).width('100%')
             }.layoutWeight(1)
             Toggle({type:ToggleType.Switch,isOn:this.blockAds}).selectedColor(ACCENT).onChange((value: boolean): void => this.toggleAdFilter(value))
           }.padding(16).width('100%').backgroundColor(CARD).borderRadius(16)
@@ -689,6 +673,7 @@ struct Index {
         Column({space:14}) {
           Text('链接与解析').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
           TextInput({text:this.inputUrl,placeholder:'影片链接或 MP4 / M3U8 直链'}).onChange((text: string): void => { this.inputUrl = text; })
+            .enableKeyboardOnFocus(false)
             .type(InputType.URL).height(48).backgroundColor(FIELD).borderRadius(16)
           Row({space:10}) {
             PasteButton().fontSize(13).height(36).onClick((_event: ClickEvent,result: PasteButtonOnClickResult): void => { if (result === PasteButtonOnClickResult.SUCCESS) this.paste(); })
@@ -698,8 +683,6 @@ struct Index {
           }.width('100%')
           Button(this.resolving ? '正在解析…' : '开始播放',{type:ButtonType.Normal}).borderRadius(14).width('100%').height(46).backgroundColor(ACCENT).enabled(!this.resolving && this.ready)
             .onClick((): void => this.playLink())
-          Text('直链、JSON 解析与网页线路均在上方画框播放。网页线路请点击画面内播放按钮。')
-            .fontSize(12).fontColor(MUTED).lineHeight(19).width('100%')
         }.padding(18).backgroundColor(CARD).borderRadius(24)
         if (this.currentEpisodes.length) {
           Text('正在追 · 选集').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
@@ -716,15 +699,14 @@ struct Index {
         }
         }
       }.padding({left:this.fullscreen || this.webFullscreen ? 0 : 20,right:this.fullscreen || this.webFullscreen ? 0 : 20,
-        top:this.fullscreen || this.webFullscreen ? 0 : this.getUIContext().px2vp(this.safeTopPx)+8,
-        bottom:this.fullscreen || this.webFullscreen ? 0 : this.getUIContext().px2vp(this.safeBottomPx)+96})
+        top:this.fullscreen || this.webFullscreen ? 0 : this.getUIContext().px2vp(this.safeTopPx)+64,
+        bottom:this.fullscreen || this.webFullscreen ? 0 : this.getUIContext().px2vp(this.safeBottomPx)+88})
         .width('100%').height(this.fullscreen || this.webFullscreen ? '100%' : undefined).constraintSize({maxWidth:this.fullscreen || this.webFullscreen ? '100%' : 760})
     }.width('100%').height('100%').scrollable(this.fullscreen || this.webFullscreen ? ScrollDirection.None : ScrollDirection.Vertical).scrollBar(BarState.Off).edgeEffect(EdgeEffect.Spring)
   }
   @Builder
   libraryPage() {
     List({space:14,scroller:this.libraryScroll}) {
-      ListItem() { this.heading('我的片单','收藏想看的，接着上次的进度') }
       ListItem() {
         Row({space:12}) {
           this.libraryStat(String(this.favorites.length),'部收藏')
@@ -762,7 +744,7 @@ struct Index {
           .accessibilityDescription('左滑删除观看记录')
       },(record: WatchRecord): string => record.episode.url)
     }.width('100%').height('100%').padding({left:20,right:20}).constraintSize({maxWidth:760})
-      .contentStartOffset(this.getUIContext().px2vp(this.safeTopPx)+8).contentEndOffset(this.getUIContext().px2vp(this.safeBottomPx)+96)
+      .contentStartOffset(this.getUIContext().px2vp(this.safeTopPx)+64).contentEndOffset(this.getUIContext().px2vp(this.safeBottomPx)+88)
       .scrollBar(BarState.Off).edgeEffect(EdgeEffect.Spring)
   }
   @Builder
@@ -803,10 +785,9 @@ struct Index {
   settingsPage() {
     Scroll(this.settingsScroll) {
       Column({space:14}) {
-        this.heading('片源与偏好','让每次打开，都更顺手')
         Column({space:12}) {
           Text('WTV 站点同步').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-          TextInput({text:this.site,placeholder:'https://你的站点'}).type(InputType.URL).onChange((value: string): void => { this.site = value; }).backgroundColor(BG)
+          TextInput({text:this.site,placeholder:'https://你的站点'}).enableKeyboardOnFocus(false).type(InputType.URL).onChange((value: string): void => { this.site = value; }).backgroundColor(BG)
           Button(this.syncing ? '同步中…' : '同步搜索源与线路').width('100%').backgroundColor(ACCENT).enabled(!this.syncing && this.ready).onClick((): void => { this.syncSite(); })
         }.padding(18).backgroundColor(CARD).borderRadius(24)
         Row() {
@@ -836,7 +817,7 @@ struct Index {
             Text('原生播放器去插播').fontSize(15).fontColor(INK).layoutWeight(1)
             Toggle({type:ToggleType.Switch,isOn:this.blockAds}).selectedColor(ACCENT).onChange((value: boolean): void => this.toggleAdFilter(value))
           }.width('100%')
-          TextInput({text:this.prepareService,placeholder:'Crayon /api/player/prepare 的 HTTPS 地址'}).type(InputType.URL).backgroundColor(BG)
+          TextInput({text:this.prepareService,placeholder:'Crayon /api/player/prepare 的 HTTPS 地址'}).enableKeyboardOnFocus(false).type(InputType.URL).backgroundColor(BG)
             .onChange((value: string): void => { this.prepareService = value; })
           Button('保存服务地址',{type:ButtonType.Normal}).fontSize(13).borderRadius(12).backgroundColor(BG).fontColor(ACCENT)
             .onClick((): void => { if (validUrl(this.prepareService,true)) { this.persist(); this.notice('去插播服务已保存'); } else this.notice('请输入 HTTPS 服务地址'); })
@@ -844,10 +825,10 @@ struct Index {
             .fontSize(12).fontColor(MUTED).lineHeight(19).width('100%')
         }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24)
         Column({space:8}) {
-          Text('WTV  1.5.1 · MPV').fontSize(15).fontWeight(FontWeight.Medium).fontColor(INK)
+          Text('WTV  1.6.0 · MPV').fontSize(15).fontWeight(FontWeight.Medium).fontColor(INK)
           Text('搜索、详情与片单使用鸿蒙原生页面。直链由原生播放器播放，网页线路由 ArkWeb 播放；部分验证和私有协议取决于线路本身。').fontSize(12).fontColor(MUTED).lineHeight(19)
         }.padding(18).width('100%')
-      }.width('100%').padding({left:20,right:20,top:this.getUIContext().px2vp(this.safeTopPx)+8,bottom:this.getUIContext().px2vp(this.safeBottomPx)+96}).constraintSize({maxWidth:760})
+      }.width('100%').padding({left:20,right:20,top:this.getUIContext().px2vp(this.safeTopPx)+64,bottom:this.getUIContext().px2vp(this.safeBottomPx)+88}).constraintSize({maxWidth:760})
     }.width('100%').height('100%').scrollBar(BarState.Off).edgeEffect(EdgeEffect.Spring)
   }
   @Builder
@@ -855,7 +836,7 @@ struct Index {
     Scroll() {
       Column({space:18}) {
         Text(this.editKind === 'search' ? '搜索接口' : '解析与播放器接口').fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-        TextInput({text:this.editName,placeholder:'接口名称'}).maxLength(60).onChange((text: string): void => { this.editName = text; }).backgroundColor(FIELD).borderRadius(16)
+        TextInput({text:this.editName,placeholder:'接口名称'}).enableKeyboardOnFocus(false).maxLength(60).onChange((text: string): void => { this.editName = text; }).backgroundColor(FIELD).borderRadius(16)
         if (this.editKind === 'search') {
           Select([{value:'WTV 站点 API'},{value:'VideoSearch 五平台 API'},{value:'MacCMS JSON / XML 采集 API'}])
             .selected(this.editType).value(['WTV 站点 API','VideoSearch 五平台 API','MacCMS JSON / XML 采集 API'][this.editType])
@@ -866,9 +847,10 @@ struct Index {
             .onSelect((index: number): void => { this.editType = index; })
         }
         TextInput({text:this.editUrl,placeholder:this.editKind === 'search' ? 'https://example.com/api.php/provide/vod/' : 'https://example.com/parse?url={url}'})
+          .enableKeyboardOnFocus(false)
           .type(InputType.URL).onChange((text: string): void => { this.editUrl = text; }).backgroundColor(FIELD).borderRadius(16)
         if (this.editKind === 'search' || this.editType === 0) {
-          TextInput({text:this.editToken,placeholder:'可选：Bearer 令牌'}).type(InputType.Password).maxLength(500)
+          TextInput({text:this.editToken,placeholder:'可选：Bearer 令牌'}).enableKeyboardOnFocus(false).type(InputType.Password).maxLength(500)
             .onChange((text: string): void => { this.editToken = text; }).backgroundColor(FIELD).borderRadius(16)
         }
         Text(this.editKind === 'search' ? 'WTV 填站点根地址；VideoSearch 填 API 根地址；MacCMS 填完整 JSON/XML 采集地址。添加后即可在发现页切换。' :
@@ -888,19 +870,33 @@ struct Index {
   build() {
     WithTheme({theme:APP_THEME}) {
       Stack({alignContent:Alignment.TopStart}) {
-        Navigation(this.nav) {
+        HdsNavigation(this.nav) {
       HdsTabs({barPosition:BarPosition.End,controller:this.tabs,index:this.tab}) {
-        TabContent() { this.discover() }.tabBar(this.tabLabel('发现',0))
+        TabContent() { this.discover() }.tabBar(this.tabLabel('搜索',0))
         TabContent() { this.playerPage() }.tabBar(this.tabLabel('播放',1))
         TabContent() { this.libraryPage() }.tabBar(this.tabLabel('片单',2))
-        TabContent() { this.settingsPage() }.tabBar(this.tabLabel('接口',3))
-      }.vertical(false).barMode(BarMode.Fixed).barOverlap(true).barHeight(this.keyboardVisible || this.fullscreen || this.webFullscreen ? 0 : 60).scrollable(false)
+        TabContent() { this.settingsPage() }.tabBar(this.tabLabel('设置',3))
+      }.vertical(false).barMode(BarMode.Fixed).barOverlap(true).barHeight(this.keyboardVisible || this.fullscreen || this.webFullscreen ? 0 : 56).scrollable(false)
         .barFloatingStyle({barSideMargin:24,barBottomMargin:this.getUIContext().px2vp(this.safeBottomPx)+10,barWidth:{mediumWidth:360,largeWidth:400},
           gradientMask:{maskColor:Color.Transparent,maskHeight:0},
           systemMaterialEffect:{materialType:this.tabMaterial,materialLevel:hdsMaterial.MaterialLevel.ADAPTIVE},thermoCtrl:true})
         .animationDuration(this.reduceMotion ? 0 : 220).onChange((index: number): void => this.changeTab(index))
         .onTabBarClick((index: number): void => this.repeatTab(index)).backgroundColor(Color.Transparent).width('100%').height('100%')
-    }.hideTitleBar(true).mode(NavigationMode.Stack).navDestination(this.destination)
+    }.hideTitleBar(this.fullscreen || this.webFullscreen).hideBackButton(true).titleMode(HdsNavigationTitleMode.MINI)
+      .titleBar({
+        avoidLayoutSafeArea:true,enableComponentSafeArea:false,
+        padding:{start:LengthMetrics.vp(20),end:LengthMetrics.vp(20)},
+        content:{title:{mainTitle:['搜索','播放','片单','设置'][this.tab],mainTitleSize:TitleSize.TITLE_ML}},
+        style:{
+          scrollEffectOpts:{enableScrollEffect:true,scrollEffectType:ScrollEffectType.IMMERSIVE_GRADIENT_BLUR,
+            blurEffectiveStartOffset:LengthMetrics.vp(0),blurEffectiveEndOffset:LengthMetrics.vp(56)},
+          originalStyle:{backgroundStyle:{backgroundColor:Color.Transparent,blurRadius:0},contentStyle:{titleStyle:{mainTitleColor:INK}}},
+          scrollEffectStyle:{backgroundStyle:{backgroundColor:BG,blurRadius:20},contentStyle:{titleStyle:{mainTitleColor:INK}}},
+          systemMaterialEffect:{materialType:this.tabMaterial,materialLevel:hdsMaterial.MaterialLevel.ADAPTIVE},thermoCtrl:true
+        }
+      })
+      .bindToScrollable([[this.discoverScroll,this.playerScroll,this.libraryScroll,this.settingsScroll][this.tab]])
+      .mode(NavigationMode.Stack).navDestination(this.destination)
       .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM],[LayoutSafeAreaEdge.TOP,LayoutSafeAreaEdge.BOTTOM])
       .backgroundColor(BG).width('100%').height('100%').padding({
         left:this.fullscreen || this.webFullscreen ? 0 : this.getUIContext().px2vp(this.safeLeftPx),right:this.fullscreen || this.webFullscreen ? 0 : this.getUIContext().px2vp(this.safeRightPx)})

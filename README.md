@@ -4,7 +4,7 @@
 
 使用 ArkTS / ArkUI 构建的鸿蒙原生影视搜索与播放应用。
 
-当前版本 **1.5.1 开发预览**：HarmonyOS API 26，最低 API 23，原生播放库支持 **ARM64**。包名为 `io.webber.wtv`。
+当前版本 **1.6.0 开发预览**：HarmonyOS API 26，最低 API 23，原生播放库支持 **ARM64**。包名为 `io.webber.wtv`。
 
 [下载 HAP 与源码](https://github.com/Swebersmith/WTV-Harmony/releases) · [更新记录](CHANGELOG.md) · [第三方许可](THIRD_PARTY_NOTICES.md)
 
@@ -18,7 +18,8 @@
 - 播放画面左侧上下滑动调整亮度，右侧上下滑动调整系统媒体音量；音量键变化同步到播放器设置。
 - 观看记录原生左滑删除，提供 5 秒撤销。
 - 原生媒体会话、系统分享、粘贴按钮、网络状态、浅色 / 深色主题。
-- 无整页顶底蒙层的沉浸滚动、悬浮导航栏和原生页面转场。
+- 左上角常驻「搜索 / 播放 / 片单 / 设置」原生标题，滚动联动沉浸式渐变模糊；56vp 纯图标悬浮底栏和原生页面转场。
+- 切换栏目及打开接口编辑时不自动弹出键盘，点击输入框正常输入。
 - 可选的 Crayon HLS 去插播服务接入。服务异常自动恢复直连，并提示本次未过滤。
 
 去插播依赖远端清单服务，只处理识别出的插播分片。服务地址可在应用内修改；画面内嵌广告和网页线路由其自身处理。
@@ -27,9 +28,13 @@
 
 ![播放器图标资源预览](docs/player-icons.png)
 
+顶部采用官方 [HdsNavigation](https://developer.huawei.com/consumer/cn/doc/harmonyos-references/ui-design-hdsnavigation/) 的 `ScrollEffectType.IMMERSIVE_GRADIENT_BLUR`，通过 `bindToScrollable` 绑定当前栏目滚动容器，0–56vp 滚动距离线性过渡。标题保持固定，内容可以滚至标题和状态栏下方；全屏播放时隐藏标题与底栏。底栏使用系统 Symbol，26vp 图形在四个等宽槽位内居中，并保留无障碍栏目名称。
+
+所有搜索与文本输入框使用官方 [enableKeyboardOnFocus](https://developer.huawei.com/consumer/cn/doc/HarmonyOS-Guides/arkts-manage-keyboard/) 属性禁止非点击获焦时自动拉起输入法。搜索页宣传卡片、各栏目旧大标题副文案及播放页两段辅助说明已经移除。
+
 ## 安装
 
-在 [Releases](https://github.com/Swebersmith/WTV-Harmony/releases) 下载 `WTV-Harmony-1.5.1-unsigned.hap`。
+在 [Releases](https://github.com/Swebersmith/WTV-Harmony/releases) 下载 `WTV-Harmony-1.6.0-unsigned.hap`。
 
 发布附件为**未签名调试包**，需要使用自己的有效鸿蒙签名身份签名后安装。升级时保持相同包名与签名身份，以便覆盖安装并保留本地数据。
 
@@ -62,7 +67,7 @@ node --test .\checks\native.mjs
 
 也可运行 `npm ci --ignore-scripts` 与 `npm test`，使用固定版本的标准 TypeScript 转译器执行同一组逻辑检查。测试中的 HTTP、音量、窗口和 MPV 运行时使用替身。
 
-**验证范围：** API 26 编译、ARM64 原生库和 HAP 结构检查已通过；图标资源经过栅格化检查。1.5.1 的系统音量调节、窗口亮度、左滑删除、横屏和实际 UI 尚未完成本机连接真机验证，因此当前发布标记为开发预览。自动逻辑检查不能代替手机上的音量和亮度验证。
+**验证范围：** API 26 编译、ARM64 原生库和 HAP 结构检查已通过；图标资源经过栅格化检查。1.6.0 的渐变模糊、标题与底栏布局、键盘行为、横屏和实际 UI 尚未完成本机连接真机验证，因此当前发布标记为开发预览。自动逻辑检查不能代替手机上的显示和交互验证。
 
 ## 许可与来源
 
