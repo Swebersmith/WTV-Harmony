@@ -95,11 +95,11 @@ void NativePlayer::detach_surface() const
     mpv_set_option(handle, "wid", MPV_FORMAT_INT64, &wid);
 }
 
-void NativePlayer::command(const std::vector<std::string>& commands) const
+int NativePlayer::command(const std::vector<std::string>& commands) const
 {
     if (!handle) {
         log_e("[napi:command] mpv is not initialized");
-        return;
+        return MPV_ERROR_UNINITIALIZED;
     }
 
     std::vector<const char*> args;
@@ -110,7 +110,7 @@ void NativePlayer::command(const std::vector<std::string>& commands) const
 
     args.push_back(nullptr);
 
-    mpv_command(handle, args.data());
+    return mpv_command(handle, args.data());
 }
 
 aki::Value NativePlayer::command_with_return(const std::vector<std::string>& commands) const

@@ -1,7 +1,8 @@
 import { avSession } from '@kit.AVSessionKit';
 import { common } from '@kit.AbilityKit';
-import { systemDateTime, deviceInfo } from '@kit.BasicServicesKit';
+import { deviceInfo } from '@kit.BasicServicesKit';
 import { playbackWantAgent } from './BackgroundPlayback';
+import { PlaybackDiagnostics } from './PlaybackDiagnostics';
 
 export interface MediaCommands {
   play: () => void; pause: () => void; stop: () => void;
@@ -35,7 +36,10 @@ export class MediaSession {
     try {
       session.on('play',commands.play); session.on('pause',commands.pause); session.on('stop',commands.stop);
       session.on('playNext',commands.next); session.on('playPrevious',commands.previous);
-      session.on('seek',(milliseconds: number): void => { if (Number.isFinite(milliseconds)) commands.seek(Math.max(0,milliseconds/1000)); });
+      session.on('seek',(milliseconds: number): void => {
+        PlaybackDiagnostics.record(`system seek ms=${milliseconds}`);
+        if (Number.isFinite(milliseconds)) commands.seek(Math.max(0,milliseconds/1000));
+      });
       session.on('fastForward',(milliseconds?: number): void => commands.skip(Number.isFinite(milliseconds) ? Math.max(0,milliseconds!)/1000 : 10));
       session.on('rewind',(milliseconds?: number): void => commands.skip(-(Number.isFinite(milliseconds) ? Math.max(0,milliseconds!)/1000 : 10)));
       session.on('setSpeed',(speed: number): void => commands.rate(speed));
@@ -90,8 +94,11 @@ export class MediaSession {
     if (!force && key === this.lastState && now-this.lastUpdate < 1000 && Math.abs(position-this.lastSeconds) < 2) return Promise.resolve();
     this.lastState = key; this.lastUpdate = now; this.lastSeconds = position;
     const value: avSession.AVPlaybackState = {state,speed:rate,
-      position:{elapsedTime:Math.floor(position*1000),updateTime:systemDateTime.getUptime(systemDateTime.TimeType.STARTUP)}};
-    return this.enqueue((session: avSession.AVSession): Promise<void> => session.setAVPlaybackState(value));
+      position:{elapsedTime:Math.floor(position*1000),updateTime:now}};
+    return this.enqueue(async (session: avSession.AVSession): Promise<void> => {
+      try { await session.setAVPlaybackState(value); }
+      catch (error) { PlaybackDiagnostics.record('system state rejected'); this.lastState = ''; throw error as Error; }
+    });
   }
   async close(): Promise<void> {
     if (this.closing) return this.closing;

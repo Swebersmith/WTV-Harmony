@@ -84,8 +84,8 @@ export class MpvLib {
     this.ctx.detachSurface();
   }
 
-  command(cmds: Array<string>): void {
-    this.ctx.command(cmds);
+  command(cmds: Array<string>): number {
+    return this.ctx.command(cmds);
   }
 
   commandWithReturn(cmds: Array<string>): MpvNode {

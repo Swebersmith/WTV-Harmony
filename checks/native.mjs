@@ -53,18 +53,27 @@ const sessionApi={BackgroundPlayMode:{ENABLE_BACKGROUND_PLAY:0,DISABLE_BACKGROUN
 let pipGate,pipStartGate;
 const pipControllers=[];
 const pipNodes=[];
-const nodeApi={createNode(context,kind,options){assert.equal(kind,'XComponent');const node={options,disposed:0,dispose(){this.disposed++;}};pipNodes.push(node);return node;}};
+class FakeFrameNode {
+  children=[];parent=null;disposed=0;
+  commonAttribute={width:()=>this.commonAttribute,height:()=>this.commonAttribute};
+  getParent(){return this.parent;}
+  appendChild(node){assert.equal(node.parent,null,'a node must have only one parent');this.children.push(node);node.parent=this;}
+  removeChild(node){this.children=this.children.filter(n=>n!==node);node.parent=null;}
+  dispose(){this.disposed++;}
+}
+class FakeNodeController {}
+const nodeApi={createNode(context,kind,options){assert.equal(kind,'XComponent');const node=new FakeFrameNode();node.options=options;pipNodes.push(node);return node;}};
 class FakePip {
   callbacks=new Map();auto=false;autoCalls=[];visible=false;started=0;stopped=0;statuses=[];enabled=new Map();startErrors=[];
   on(event,cb){this.callbacks.set(event,cb);}
   off(event,cb){if(!cb||this.callbacks.get(event)===cb)this.callbacks.delete(event);}
-  emit(event,...args){if(event==='stateChange'&&args[0]===4)this.visible=false;this.callbacks.get(event)?.(...args);}
+  emit(event,...args){if(event==='stateChange'&&args[0]===4){this.visible=false;if(this.node?.getParent()===this.host)this.host?.removeChild(this.node);}this.callbacks.get(event)?.(...args);}
   setAutoStartEnabled(value){this.auto=value;this.autoCalls.push(value);if(this.autoError)throw Error('auto unavailable');}
   updatePiPControlStatus(type,status){this.statuses.push({type,status});}
   setPiPControlEnabled(type,value){this.enabled.set(type,value);}
   updateContentSize(w,h){this.size=[w,h];}
   async isPiPActive(){return this.visible;}
-  async startPiP(){this.started++;await pipStartGate;if(this.startErrors.length)throw this.startErrors.shift();this.visible=true;this.emit('stateChange',1,'');this.emit('stateChange',2,'');}
+  async startPiP(){this.started++;await pipStartGate;if(this.startErrors.length)throw this.startErrors.shift();this.emit('stateChange',1,'requestStart');this.host=new FakeFrameNode();this.host.appendChild(this.node);this.visible=true;this.emit('stateChange',2,'requestStart');}
   async stopPiP(){this.stopped++;this.emit('stateChange',3,'');this.emit('stateChange',4,'');}
 }
 const pipApi={enabled:true,isPiPEnabled(){return this.enabled;},PiPState:{ABOUT_TO_START:1,STARTED:2,ABOUT_TO_STOP:3,STOPPED:4,ABOUT_TO_RESTORE:5,ERROR:6},
@@ -77,7 +86,7 @@ class FakeMpv {
   stream={position:stream(),duration:stream(),playing:stream(),buffering:stream(),eof:stream()};
   observers=[];properties=new Map();path='';played=0;destroyed=0;stopped=0;
   native={addEventObserver:observer=>this.observers.push(observer),removeEventObserver:observer=>{this.observers=this.observers.filter(x=>x!==observer);},
-    command:args=>{this.lastCommand=args;if(args[0]==='seek')this.currentTime=Number(args[1]);},
+    command:args=>{this.lastCommand=args;if(args[0]==='seek'&&!this.commandError)this.currentTime=Number(args[1]);return this.commandError||0;},
     setProperty:(key,value)=>this.properties.set(key,value),getPropertyString:()=>this.path,getProperty:()=>5};
   constructor(config){this.config=config;this.stream.position.listen(n=>this.state.position=n);nativePlayers.push(this);}
   onSurfaceCreated(surface){this.surface=surface;this.videoAtAttach=this.properties.get('vid');}
@@ -105,10 +114,10 @@ function load(name) {
   }
   const {outputText} = ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}});
   const module = {exports:{}};
-  const kits={'@kit.NetworkKit':{http},'@kit.ArkUI':{window:windowApi,PiPWindow:pipApi,typeNode:nodeApi},'@kit.AudioKit':{audio:audioApi},
+  const kits={'@kit.NetworkKit':{http},'@kit.ArkUI':{window:windowApi,PiPWindow:pipApi,typeNode:nodeApi,NodeController:FakeNodeController,FrameNode:FakeFrameNode},'@kit.AudioKit':{audio:audioApi},
     '@kit.AbilityKit':abilityApi,'@kit.BackgroundTasksKit':{backgroundTaskManager:backgroundApi},'@kit.AVSessionKit':{avSession:sessionApi},
     '@kit.ArkData':{preferences:{}},'@kit.ShareKit':{},'@kit.UIDesignKit':{HdsTabsController:class{changeIndex(){}},hdsMaterial:{MaterialType:{ADAPTIVE:0}}},
-    '@kit.BasicServicesKit':{deviceInfo,systemDateTime:{TimeType:{STARTUP:0},getUptime:()=>123456}}};
+    '@kit.BasicServicesKit':{deviceInfo},'@kit.PerformanceAnalysisKit':{hilog:{info(){}}}};
   const localRequire = id => kits[id] || (id.endsWith('components/WebPlayer') ? {WebPlayerHandle:class{exitFullscreen(){return false;}}} :
     id === '@mpv-ohos/mpv-arkts' ? mpvApi : load(path.posix.normalize(path.posix.join(path.posix.dirname(name),id))));
   vm.runInThisContext(`(function(require,module,exports){${outputText}\n})`)(localRequire,module,module.exports);
@@ -117,6 +126,7 @@ function load(name) {
 const models = load('model/Models');
 const {Api,collectionPayload,collectionLines} = load('services/Api');
 const {AdFilter,originalTime,filteredTime,validatePrepared,prepareNativeMedia} = load('services/AdFilter');
+const {VideoSurface}=load('services/VideoSurface');
 const {NativePlayback} = load('services/NativePlayback');
 const {BackgroundPlayback}=load('services/BackgroundPlayback');
 const {MediaSession}=load('services/MediaSession');
@@ -527,9 +537,9 @@ test('API 23 keeps basic system controls without invoking the API 24 background-
 });
 const pictureCommands=(events=[])=>({play:()=>events.push('play'),pause:()=>events.push('pause'),next:()=>events.push('next'),previous:()=>events.push('previous'),
   changed:n=>events.push(['active',n]),restore:()=>events.push('restore'),failed:()=>events.push('failed')});
-test('system PiP uses an independent free node and routes controls with bounded previous/next availability',async()=>{
+test('system PiP moves the preview node and routes controls with bounded previous/next availability',async()=>{
   const service=new PictureInPicture(),surface=new NativePlayback(),events=[];
-  await service.open(appContext,surface,pictureCommands(events),{});const pip=pipControllers.at(-1);assert.notEqual(pip.config.componentController,surface);assert.equal(pip.node.options.controller,pip.config.componentController);
+  await service.open(appContext,new VideoSurface(surface),pictureCommands(events),{});const pip=pipControllers.at(-1);assert.equal(pip.config.componentController,surface);assert.equal(pip.node.options.controller,pip.config.componentController);
   assert.equal(pip.config.navigationId,undefined);service.configure(true,true,true,false,true);assert.equal(pip.auto,true);
   await service.start();assert.equal(service.isActive(),true);
   pip.emit('controlEvent',{controlType:0,status:0});pip.emit('controlEvent',{controlType:0,status:1});pip.emit('controlEvent',{controlType:1});pip.emit('controlEvent',{controlType:2});
@@ -537,16 +547,16 @@ test('system PiP uses an independent free node and routes controls with bounded 
   assert.equal(pip.statuses.at(-1).status,0);service.size(1280,720);assert.deepEqual(pip.size,[1280,720]);await service.close();assert.equal(pip.callbacks.size,0);
 });
 test('returning from PiP preserves playback; closing the system window pauses instead',async()=>{
-  const service=new PictureInPicture(),events=[];await service.open(appContext,new NativePlayback(),pictureCommands(events),{});service.configure(false,true,true,true,true);
+  const service=new PictureInPicture(),events=[];await service.open(appContext,new VideoSurface(new NativePlayback()),pictureCommands(events),{});service.configure(false,true,true,true,true);
   const pip=pipControllers.at(-1);await service.start();pip.emit('stateChange',5,'');pip.emit('stateChange',4,'');
   assert.equal(events.includes('restore'),true);assert.equal(events.includes('pause'),false);
   await service.start();await service.stop(true);assert.equal(events.includes('pause'),false);
   await service.start();await service.stop(false);assert.equal(events.filter(x=>x==='pause').length,1);await service.close();
 });
 test('PiP ineligibility disables auto-start, and a controller created after disposal has no listeners',async()=>{
-  const gate=deferred();pipGate=gate.promise;const service=new PictureInPicture();const open=service.open(appContext,new NativePlayback(),pictureCommands(),{});await flush();
+  const gate=deferred();pipGate=gate.promise;const service=new PictureInPicture();const open=service.open(appContext,new VideoSurface(new NativePlayback()),pictureCommands(),{});await flush();
   const close=service.close();gate.resolve();pipGate=undefined;await Promise.all([open,close]);assert.equal(pipControllers.at(-1).callbacks.size,0);
-  await service.open(appContext,new NativePlayback(),pictureCommands(),{});service.configure(true,false,true,false,false);
+  await service.open(appContext,new VideoSurface(new NativePlayback()),pictureCommands(),{});service.configure(true,false,true,false,false);
   assert.equal(pipControllers.at(-1).auto,false);await assert.rejects(service.start(),/先播放/);await service.close();
 });
 test('background audio and PiP surface handoff reuse the core and can load the next episode without a surface',()=>{
@@ -577,35 +587,35 @@ test('a failed source switch releases the previous background task and disables 
 });
 
 test('simultaneous small-window taps share one native startup while its callback is pending',async()=>{
-  const service=new PictureInPicture();await service.open(appContext,new NativePlayback(),pictureCommands(),{});service.configure(false,true,true,false,false);
+  const service=new PictureInPicture();await service.open(appContext,new VideoSurface(new NativePlayback()),pictureCommands(),{});service.configure(false,true,true,false,false);
   const pip=pipControllers.at(-1),gate=deferred();pipStartGate=gate.promise;
   const requests=[service.start(),service.start(),service.start()];await flush();assert.equal(pip.started,1);
   gate.resolve();pipStartGate=undefined;await Promise.all(requests);assert.equal(service.isActive(),true);await service.close();
 });
 test('an already visible native PiP reconciles a missed callback without starting it again',async()=>{
-  const service=new PictureInPicture();await service.open(appContext,new NativePlayback(),pictureCommands(),{});service.configure(false,true,true,false,false);
+  const service=new PictureInPicture();await service.open(appContext,new VideoSurface(new NativePlayback()),pictureCommands(),{});service.configure(false,true,true,false,false);
   const pip=pipControllers.at(-1);pip.visible=true;await service.start();assert.equal(pip.started,0);assert.equal(service.isActive(),true);await service.close();
 });
 test('a stuck 1300012 startup is stopped and retried once without pausing the video',async()=>{
-  const service=new PictureInPicture(),events=[];await service.open(appContext,new NativePlayback(),pictureCommands(events),{});service.configure(false,true,true,false,false);
+  const service=new PictureInPicture(),events=[];await service.open(appContext,new VideoSurface(new NativePlayback()),pictureCommands(events),{});service.configure(false,true,true,false,false);
   const pip=pipControllers.at(-1);pip.startErrors=[{code:1300012}];await service.start();
   assert.equal(pip.started,2);assert.equal(pip.stopped,1);assert.equal(service.isActive(),true);assert.equal(events.includes('pause'),false);await service.close();
 });
 test('identical auto-PiP settings are applied once; auto-configuration failures do not block play status',async()=>{
-  const service=new PictureInPicture();await service.open(appContext,new NativePlayback(),pictureCommands(),{});const pip=pipControllers.at(-1);
+  const service=new PictureInPicture();await service.open(appContext,new VideoSurface(new NativePlayback()),pictureCommands(),{});const pip=pipControllers.at(-1);
   for(let i=0;i<30;i++)service.configure(true,true,true,true,true);
   assert.deepEqual(pip.autoCalls,[false,true]);
   pip.autoError=true;service.configure(false,true,false,true,true);assert.equal(pip.statuses.at(-1).status,0);pip.autoError=false;await service.close();
 });
-test('independent PiP and main surfaces keep one decoder and ignore main-page resizes while in PiP',async()=>{
-  const player=new NativePlayback();player.listen(playbackEvents());player.setKeepAlive(true);player.load('https://cdn.example/pip.mp4',false);player.onSurfaceCreated('main-node');
-  const core=nativePlayers.at(-1);core.emit(8);const service=new PictureInPicture();await service.open(appContext,player,pictureCommands(),{});service.configure(false,true,true,false,false);
-  const pip=pipControllers.at(-1),surface=pip.node.options.controller;surface.onSurfaceCreated('free-pip-node');assert.equal(core.surface,'main-node');
-  await service.start();assert.equal(core.surface,'free-pip-node');assert.equal(core.videoAtAttach,'no');assert.equal(core.properties.get('vid'),'auto');
-  surface.onSurfaceChanged('free-pip-node',{surfaceWidth:640,surfaceHeight:360});player.onSurfaceChanged('main-node',{surfaceWidth:1080,surfaceHeight:720});player.resize(1080,720);
-  assert.equal(core.properties.get('ohos-surface-size'),'640x360');
-  await service.stop(true);assert.equal(core.surface,'main-node');assert.equal(core.videoAtAttach,'no');assert.equal(core.properties.get('vid'),'auto');assert.equal(core.properties.get('ohos-surface-size'),'1080x720');surface.onSurfaceDestroyed('free-pip-node');assert.equal(core.surface,'main-node');assert.equal(core.destroyed,0);
-  player.clear();player.detach();const count=nativePlayers.length;await service.close();assert.equal(nativePlayers.length,count,'late PiP cleanup must not create a new decoder');
+test('PiP migrates the existing preview node before start, restores before stop, and keeps the same core and surface',async()=>{
+  const player=new NativePlayback(),surface=new VideoSurface(player);player.listen(playbackEvents());player.setKeepAlive(true);
+  const page=surface.makeNode({}),node=surface.getContent({});assert.equal(node.getParent(),page);
+  player.load('https://cdn.example/pip.mp4',false);node.options.controller.onSurfaceCreated('one-surface');const core=nativePlayers.at(-1);core.emit(8);
+  const service=new PictureInPicture();await service.open(appContext,surface,pictureCommands(),{});service.configure(false,true,true,false,false);
+  const pip=pipControllers.at(-1);assert.equal(pip.node,node);await service.start();assert.equal(node.getParent(),pip.host);assert.equal(core.surface,'one-surface');
+  node.options.controller.onSurfaceChanged('one-surface',{surfaceWidth:640,surfaceHeight:360});assert.equal(core.properties.get('ohos-surface-size'),'640x360');
+  await service.stop(true);assert.equal(node.getParent(),page);assert.equal(core.surface,'one-surface');assert.equal(core.destroyed,0);
+  await service.close();assert.equal(node.disposed,0,'PiP does not own the preview node lifetime');player.clear();player.detach();surface.dispose();assert.equal(node.disposed,1);
 });
 test('precise seek holds the requested position until the native clock confirms it, discarding old samples',()=>{
   const times=[],buffers=[],player=new NativePlayback(),events=playbackEvents();events.time=n=>times.push(n);events.buffering=n=>buffers.push(n);player.listen(events);
@@ -635,4 +645,21 @@ test('background system seek immediately acknowledges its target and only resume
   assert.equal(session.states.at(-1).position.elapsedTime,75000);assert.equal(session.states.at(-1).state,6);
   core.stream.position.emit(75.2);await ui.media.queue;assert.equal(session.states.at(-1).position.elapsedTime,75200);assert.equal(session.states.at(-1).state,1);
   ui.disposed=true;ui.video.clear();ui.video.detach();await ui.pip.close();await ui.backgroundLease.close();await ui.media.close();
+});
+
+test('AVSession progress uses epoch milliseconds matching the official controller clock',async()=>{
+  const service=new MediaSession();await service.open(appContext,mediaCommands());
+  const before=Date.now();await service.update(true,35);const value=systemSessions.at(-1).states.at(-1).position;
+  assert.equal(value.elapsedTime,35000);assert.ok(value.updateTime>=before&&value.updateTime<=Date.now());
+  assert.ok(Math.abs(value.elapsedTime+(Date.now()-value.updateTime)-35000)<1000,'system extrapolation stays near actual progress');await service.close();
+});
+test('a rejected native seek does not publish a fabricated target or leave a pending timer',()=>{
+  const events=playbackEvents(),times=[];let failures=0;events.time=n=>times.push(n);events.seekFailed=()=>failures++;
+  const player=new NativePlayback();player.listen(events);player.load('https://cdn.example/unseekable.mp4',false);player.attach('seek-error');const core=nativePlayers.at(-1);core.emit(8);core.stream.position.emit(8);core.commandError=-12;
+  assert.equal(player.setCurrentTime(70),false);assert.equal(failures,1);assert.equal(times.at(-1),8);assert.equal(player.seekTarget,undefined);player.clear();player.detach();
+});
+test('the video node remounts in a new page host and can be restored if PiP is interrupted',()=>{
+  const surface=new VideoSurface(new NativePlayback()),first=surface.makeNode({}),node=surface.getContent({});
+  surface.setInPip(true);assert.equal(node.getParent(),null);const next=surface.makeNode({});assert.equal(next.children.length,0);
+  surface.setInPip(false);assert.equal(node.getParent(),next);assert.equal(first.children.length,0);surface.dispose();
 });

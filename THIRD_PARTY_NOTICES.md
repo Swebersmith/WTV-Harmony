@@ -2,7 +2,7 @@
 
 The application links dynamically to the HarmonyOS ARM64 build of libmpv. It does not embed a web player as its native playback engine.
 
-- **mpv-arkts 1.0.0**, Bao Han, MIT: https://github.com/mpv-ohos/mpv-arkts . The vendored module retains its license and copyright notices. Local changes pin and verify the supplied binary and carry MPV end-file error and playlist-entry data across the native event bridge.
+- **mpv-arkts 1.0.0**, Bao Han, MIT: https://github.com/mpv-ohos/mpv-arkts . The vendored module retains its license and copyright notices. Local changes pin and verify the supplied binary and carry MPV end-file error and playlist-entry data across the native event bridge, and return native command status so rejected seeks can be reported.
 - **libmpv OHOS release 20260715**, based on mpv 0.41.0, built with `-Dgpl=false`. Source/build recipes: https://github.com/mpv-ohos/libmpv-ohos-build/tree/20260715 . MPV port: https://github.com/ErBWs/mpv/tree/feat-ohos-0.41.0 . The library uses LGPL-2.1-or-later components; embedded FFmpeg reports LGPL-3.0-or-later. License texts are included under `entry/src/main/resources/rawfile/licenses`.
 - **AKI**, Apache-2.0: source and license are retained under `mpv/src/main/cpp/third_party/aki`.
 - **simdjson**, Apache-2.0 / MIT: the upstream amalgamated source and its notices are retained under `mpv/src/main/cpp/third_party/simdjson`.

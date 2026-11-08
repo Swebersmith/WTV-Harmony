@@ -26,7 +26,7 @@ public:
     void destroy();
     void attach_surface(const std::string& surface) const;
     void detach_surface() const;
-    void command(const std::vector<std::string>& commands) const;
+    int command(const std::vector<std::string>& commands) const;
     aki::Value command_with_return(const std::vector<std::string>& commands) const;
     void load_file(const std::string& url, const std::map<std::string, std::string>& options) const;
     void request_log_messages(const std::string& level) const;

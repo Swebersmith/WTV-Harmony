@@ -23,7 +23,7 @@ export declare class NativePlayer {
 
   detachSurface(): void
 
-  command(commands: Array<string>): void
+  command(commands: Array<string>): number
 
   commandWithReturn(commands: Array<string>): MpvNode
 

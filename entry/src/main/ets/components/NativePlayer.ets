@@ -1,4 +1,5 @@
 import { NativePlayback, NATIVE_RATES } from '../services/NativePlayback';
+import { VideoSurface } from '../services/VideoSurface';
 import { common } from '@kit.AbilityKit';
 import { window } from '@kit.ArkUI';
 import { AVVolumePanel } from '@kit.AudioKit';
@@ -10,6 +11,7 @@ const MINT: string = '#A1E6D0';
 @Component
 export struct NativePlayer {
   controller: NativePlayback = new NativePlayback();
+  surface: VideoSurface = new VideoSurface(this.controller);
   @Prop title: string = '';
   @Prop subtitle: string = '';
   @Prop status: string = '';
@@ -295,7 +297,7 @@ export struct NativePlayer {
   }
   build() {
     Stack() {
-      XComponent({id:'wtv-native-surface',type:XComponentType.SURFACE,controller:this.controller})
+      NodeContainer(this.surface)
         .width('100%').height('100%')
       Column().width('100%').height('100%').backgroundColor(Color.Transparent)
         .gesture(GestureGroup(GestureMode.Exclusive,

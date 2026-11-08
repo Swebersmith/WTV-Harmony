@@ -11,6 +11,8 @@ import { Store } from '../services/Store';
 import { MediaSession } from '../services/MediaSession';
 import { BackgroundPlayback } from '../services/BackgroundPlayback';
 import { PictureInPicture } from '../services/PictureInPicture';
+import { VideoSurface } from '../services/VideoSurface';
+import { PlaybackDiagnostics } from '../services/PlaybackDiagnostics';
 import { AdFilter, AdRange, originalTime, filteredTime, prepareNativeMedia } from '../services/AdFilter';
 import { NativePlayback } from '../services/NativePlayback';
 import { NativePlayer } from '../components/NativePlayer';
@@ -36,6 +38,7 @@ struct Index {
   private settingsScroll: Scroller = new Scroller();
   private tabChangedAt: number = 0;
   private video: NativePlayback = new NativePlayback();
+  private videoSurface: VideoSurface = new VideoSurface(this.video);
   private webPlayer: WebPlayerHandle = new WebPlayerHandle();
   private originalMediaUrl: string = '';
   private mediaHls: boolean = false;
@@ -190,7 +193,7 @@ struct Index {
     clearTimeout(this.undoTimer);
     this.api.cancel();
     this.adFilter.cancel(); this.nativeFullscreenChanged(false);
-    this.pip.close().catch((): void => {}); this.backgroundLease.close().catch((): void => {});
+    this.pip.close().catch((): void => {}).finally((): void => this.videoSurface.dispose()); this.backgroundLease.close().catch((): void => {});
     this.video.setKeepAlive(false); this.video.clear(); this.video.detach();
     this.media.close().catch((): void => {});
     this.net?.unregister((): void => {});
@@ -229,6 +232,12 @@ struct Index {
   }
   notice(message: string): void { this.getUIContext().getPromptAction().showToast({message,duration:3500}); }
   message(error: Error): string { return error.message || '操作未成功，请检查网络后重试'; }
+  async copyPlaybackDiagnostics(): Promise<void> {
+    try {
+      await pasteboard.getSystemPasteboard().setData(pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN,PlaybackDiagnostics.report()));
+      this.notice('播放诊断已复制');
+    } catch { this.notice('复制失败，请重试'); }
+  }
   persist(): void {
     if (!this.ready) return;
     this.store.settings = {site:this.site,searches:this.sources,parsers:this.parsers,autoNext:this.autoNext,schemaVersion:2,blockAds:this.blockAds,prepareService:this.prepareService,reduceMotion:this.reduceMotion,
@@ -452,7 +461,7 @@ struct Index {
   }
   async ensurePip(): Promise<void> {
     if (!this.context || !this.mediaUrl || this.webUrl) throw new Error('请先播放原生视频');
-    await this.pip.open(this.context,this.video,{
+    await this.pip.open(this.context,this.videoSurface,{
       play:(): void => this.playFromSystem(),pause:(): void => this.video.pause(),
       next:(): void => this.neighbor(1),previous:(): void => this.neighbor(-1),
       changed:(active: boolean): void => {
@@ -744,7 +753,7 @@ struct Index {
       Column({space:this.fullscreen || this.webFullscreen ? 0 : 16}) {
         Stack() {
           if (this.nativePlayerMounted) {
-            NativePlayer({controller:this.video,title:this.currentMovie.title,subtitle:this.currentEpisode.title,status:this.adStatus,error:this.playerError,
+            NativePlayer({controller:this.video,surface:this.videoSurface,title:this.currentMovie.title,subtitle:this.currentEpisode.title,status:this.adStatus,error:this.playerError,
               playing:this.playing,buffering:this.resolving || this.buffering,elapsed:this.elapsed,duration:this.duration,fullscreen:this.fullscreen,reduceMotion:this.reduceMotion,active:this.tab === 1,
               inPip:this.pipActive,systemRate:this.playbackRate,onSmallWindow:(): void => { this.startSmallWindow(); },onRestoreWindow:(): void => this.restoreSmallWindow(),
               episodeNames:this.currentEpisodes.map((episode: Episode,index: number): string => episodeLabel(episode,this.currentMovie.title,index)),episodeIndex:this.currentIndex,
@@ -951,8 +960,10 @@ struct Index {
             .fontSize(12).fontColor(MUTED).lineHeight(19).width('100%')
         }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24)
         Column({space:8}) {
-          Text('WTV  1.7.1 · MPV').fontSize(15).fontWeight(FontWeight.Medium).fontColor(INK)
+          Text('WTV  1.7.2 · MPV').fontSize(15).fontWeight(FontWeight.Medium).fontColor(INK)
           Text('搜索、详情与片单使用鸿蒙原生页面。直链由原生播放器播放，网页线路由 ArkWeb 播放；部分验证和私有协议取决于线路本身。').fontSize(12).fontColor(MUTED).lineHeight(19)
+          Button('复制播放诊断',{type:ButtonType.Normal}).fontSize(13).borderRadius(12).backgroundColor(CARD).fontColor(ACCENT)
+            .onClick((): void => { this.copyPlaybackDiagnostics(); })
         }.padding(18).width('100%')
       }.width('100%').padding({left:20,right:20,top:this.getUIContext().px2vp(this.safeTopPx)+64,bottom:this.getUIContext().px2vp(this.safeBottomPx)+88}).constraintSize({maxWidth:760})
     }.width('100%').height('100%').scrollBar(BarState.Off).edgeEffect(EdgeEffect.Spring)

@@ -1,4 +1,5 @@
 import { Player, PlayerConfig, Media, MpvLogLevel, EventObserver, MpvEvent } from '@mpv-ohos/mpv-arkts';
+import { PlaybackDiagnostics } from './PlaybackDiagnostics';
 
 interface SourceRequest { url: string; hls: boolean; resume: number; autoplay: boolean; }
 interface FileEnd { error: number; entryId: number; }
@@ -19,11 +20,6 @@ export const NATIVE_RATES: number[] = [0.75,1,1.25,1.5,1.75,2];
 export class NativePlayback extends XComponentController implements EventObserver {
   private player?: Player;
   private surface: string = '';
-  private mainSurface: string = '';
-  private pipSurface: string = '';
-  private pipOwned: boolean = false;
-  private mainSize: number[] = [0,0];
-  private pipSize: number[] = [0,0];
   private seekTarget?: number;
   private seekTimer: number = -1;
   private coreBuffering: boolean = false;
@@ -42,33 +38,16 @@ export class NativePlayback extends XComponentController implements EventObserve
   getRate(): number { return this.desiredRate; }
   getVolume(): number { return this.desiredVolume; }
   listen(events: PlaybackEvents): void { this.events = events; }
-  onSurfaceCreated(surface: string): void { this.mainSurface = surface; if (!this.pipOwned) this.attach(surface); }
+  onSurfaceCreated(surface: string): void { this.attach(surface); }
   onSurfaceChanged(surface: string, rect: SurfaceRect): void {
-    if (surface === this.mainSurface) this.mainSize = [rect.surfaceWidth,rect.surfaceHeight];
-    if (surface === this.pipSurface) this.pipSize = [rect.surfaceWidth,rect.surfaceHeight];
     if (surface === this.surface) this.resizeSurface(rect.surfaceWidth,rect.surfaceHeight);
   }
   onSurfaceDestroyed(surface: string): void {
-    if (surface === this.mainSurface) this.mainSurface = '';
     if (surface !== this.surface) return;
     if (this.keepAlive && this.player && this.request) {
       this.surface = '';
       try { this.player.native.setProperty('vid','no'); this.player.onSurfaceDestroyed(''); } catch {}
     } else this.detach();
-  }
-  onPipSurfaceCreated(surface: string): void { this.pipSurface = surface; if (this.pipOwned && this.player && this.request) this.attach(surface); }
-  onPipSurfaceChanged(surface: string, rect: SurfaceRect): void { this.onSurfaceChanged(surface,rect); }
-  onPipSurfaceDestroyed(surface: string): void {
-    if (surface === this.pipSurface) this.pipSurface = '';
-    if (surface === this.surface) {
-      this.surface = ''; this.applyVideoMode();
-      try { this.player?.onSurfaceDestroyed(''); } catch {}
-    }
-  }
-  usePipSurface(active: boolean): void {
-    this.pipOwned = active;
-    const surface = active ? this.pipSurface : this.mainSurface;
-    if (surface && this.player && this.request) this.attach(surface);
   }
   setKeepAlive(value: boolean): void { this.keepAlive = value; }
   isRetained(): boolean { return this.keepAlive; }
@@ -84,7 +63,6 @@ export class NativePlayback extends XComponentController implements EventObserve
     return [1920,1080];
   }
   attach(surface: string): void {
-    if (!this.pipOwned) this.mainSurface = surface;
     if (this.surface === surface && this.player) return;
     if (this.player && this.keepAlive && this.request && !this.failed) {
       this.surface = surface;
@@ -92,8 +70,7 @@ export class NativePlayback extends XComponentController implements EventObserve
         // OHOS creates its EGL surface when video output starts. Retire that output before changing wid.
         this.player.native.setProperty('vid','no');
         this.player.onSurfaceCreated(surface);
-        const size = this.pipOwned ? this.pipSize : this.mainSize;
-        this.resizeSurface(size[0],size[1]); this.applyVideoMode();
+        this.applyVideoMode();
       } catch { this.fail(-1); }
       return;
     }
@@ -112,6 +89,7 @@ export class NativePlayback extends XComponentController implements EventObserve
         if (!this.accepts(p) || !Number.isFinite(seconds) || seconds < 0) return;
         if (this.seekTarget !== undefined) {
           if (Math.abs(seconds-this.seekTarget) > 1.5) return;
+          PlaybackDiagnostics.record(`seek confirmed ${seconds.toFixed(3)}`);
           this.clearSeek(); this.current = seconds; this.events?.time(seconds); this.events?.buffering(this.coreBuffering); return;
         }
         this.current = seconds; this.events?.time(seconds);
@@ -133,8 +111,7 @@ export class NativePlayback extends XComponentController implements EventObserve
     } catch { this.fail(-1); }
   }
   resize(width: number, height: number): void {
-    this.mainSize = [width,height];
-    if (!this.pipOwned) this.resizeSurface(width,height);
+    this.resizeSurface(width,height);
   }
   private resizeSurface(width: number, height: number): void {
     if (width <= 0 || height <= 0) return;
@@ -170,7 +147,7 @@ export class NativePlayback extends XComponentController implements EventObserve
     this.events?.buffering(true);
     this.timeout = setTimeout((): void => { if (revision === this.revision) this.fail(-2); },30000);
     try {
-      this.player.open(new Media(request.url,{start:request.resume,httpHeaders:new Map<string,string>([['User-Agent','WTV-Harmony/1.7.1']])}),request.autoplay);
+      this.player.open(new Media(request.url,{start:request.resume,httpHeaders:new Map<string,string>([['User-Agent','WTV-Harmony/1.7.2']])}),request.autoplay);
       this.player.setSpeed(this.desiredRate); this.player.setVolume(this.desiredVolume*100);
     } catch { this.fail(-1); }
   }
@@ -221,13 +198,16 @@ export class NativePlayback extends XComponentController implements EventObserve
     const target = Math.max(0,duration > 0 ? Math.min(duration-0.2,seconds) : seconds);
     this.clearSeek(); this.seekTarget = target;
     try {
-      player.native.command(['seek',target.toFixed(3),'absolute+exact']);
+      const result = player.native.command(['seek',target.toFixed(3),'absolute+exact']);
+      PlaybackDiagnostics.record(`seek target=${target.toFixed(3)} result=${result}`);
+      if (result < 0) { this.clearSeek(); this.events?.seekFailed?.(); return false; }
       player.state.eof = false; player.stream.eof.add(false); this.completed = false;
       this.current = target; this.events?.buffering(true); this.events?.time(target);
       this.seekTimer = setTimeout((): void => {
         if (!this.accepts(player) || this.seekTarget !== target) return;
         this.clearSeek();
         const actual = player.state.position;
+        PlaybackDiagnostics.record(`seek timeout actual=${actual}`);
         if (Number.isFinite(actual) && actual >= 0) { this.current = actual; this.events?.time(actual); }
         this.events?.buffering(this.coreBuffering); this.events?.seekFailed?.();
       },10000);
