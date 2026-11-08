@@ -4,7 +4,7 @@
 
 使用 ArkTS / ArkUI 构建的鸿蒙原生影视搜索与播放应用。
 
-当前版本 **1.7.3 开发预览**：HarmonyOS API 26，最低 API 23，原生播放库支持 **ARM64**。包名为 `io.webber.wtv`。
+当前版本 **1.7.4 开发预览**：HarmonyOS API 26，最低 API 23，原生播放库支持 **ARM64**。包名为 `io.webber.wtv`。
 
 [下载 HAP 与源码](https://github.com/Swebersmith/WTV-Harmony/releases) · [更新记录](CHANGELOG.md) · [第三方许可](THIRD_PARTY_NOTICES.md)
 
@@ -52,11 +52,11 @@
 
 复现方法：安装新版后播放一次；发生闪退则重新打开，进入「设置 → 错误与播放日志 → 导出错误日志 TXT」并选择保存位置。若系统尚未投递堆栈，可稍等后再次导出；即使附件不可读也会保留事件摘要与播放步骤。系统只会提供其实际保留的故障记录，本应用不能捕获进程终止后尚未生成的堆栈。
 
-日志只保存在本机，不自动上传；遮盖 HTTP(S) 链接与常见 token / password / Authorization 字段。最多保留两个约 64 KiB 的步骤文件及两份截取到 131072 字符的故障文件，不会无限增长；清空仅删除本应用的诊断副本。系统日志可能包含设备运行信息，导出后可自行查看。原生闪退的原因尚未确认，本版用于收集真实故障依据。
+日志只保存在本机，不自动上传；遮盖 HTTP(S) 链接与常见 token / password / Authorization 字段。最多保留两个约 64 KiB 的步骤文件及两份截取到 131072 字符的故障文件，不会无限增长；清空仅删除本应用的诊断副本。系统日志可能包含设备运行信息，导出后可自行查看。1.7.3 的真机日志将启动播放时的闪退定位到 onSurfaceCreated 内的 this.attach 调用；1.7.4 将三个 Surface 生命周期回调改为捕获播放器实例的函数，避免 typeNode 桥接改变回调接收者。该调用方式已加入回归测试，实际播放仍需真机复测。
 
 ## 安装
 
-在 [Releases](https://github.com/Swebersmith/WTV-Harmony/releases) 下载 `WTV-Harmony-1.7.3-unsigned.hap`。
+在 [Releases](https://github.com/Swebersmith/WTV-Harmony/releases) 下载 `WTV-Harmony-1.7.4-unsigned.hap`。
 
 发布附件为**未签名调试包**，需要使用自己的有效鸿蒙签名身份签名后安装。升级时保持相同包名与签名身份，以便覆盖安装并保留本地数据。
 
@@ -80,7 +80,7 @@ Windows PowerShell 示例，建议将工具与构建目录放在英文路径：
 
 ## 检查
 
-使用 SDK 中的 TypeScript 转译器运行 74 项协议、播放生命周期、音量、亮度、后台任务、系统会话和画中画逻辑检查：
+使用 SDK 中的 TypeScript 转译器运行 75 项协议、播放生命周期、音量、亮度、后台任务、系统会话和画中画逻辑检查：
 
 ```powershell
 $env:ARKTS_TYPESCRIPT = 'C:\Tools\command-line-tools\sdk\default\openharmony\ets\build-tools\ets-loader\node_modules\typescript'
@@ -89,7 +89,7 @@ node --test .\checks\native.mjs
 
 也可运行 `npm ci --ignore-scripts` 与 `npm test`，使用固定版本的标准 TypeScript 转译器执行同一组逻辑检查。测试中的 HTTP、音量、窗口、AVSession、后台任务、PiP 和 MPV 运行时使用替身；页面事件处理器只验证逻辑，不模拟渲染。
 
-**验证范围：** API 26 编译、ARM64 原生库和 HAP 结构检查已通过。1.7.3 的控制中心卡片、锁屏卡片、实况窗、锁屏后台音频、系统 PiP 节点迁移和恢复尚未连接真机验证，因此当前发布标记为开发预览。逻辑替身不能验证系统 UI、系统后台调度或实际解码连续性。
+**验证范围：** API 26 编译、ARM64 原生库和 HAP 结构检查已通过。1.7.4 的控制中心卡片、锁屏卡片、实况窗、锁屏后台音频、系统 PiP 节点迁移和恢复尚未连接真机验证，因此当前发布标记为开发预览。逻辑替身不能验证系统 UI、系统后台调度或实际解码连续性。
 
 ## 许可与来源
 

@@ -725,3 +725,15 @@ test('system-provided native fault attachments are copied with stack frames, bou
   const next=fresh();next.start({filesDir:dir},{lastExitReason:2,lastExitMessage:'native crash'});const report=next.report();
   assert.match(report,/#00 libmpv.so/);assert.match(report,/#01 libmpv_wrapper.so/);assert.ok(!report.includes('private.example'));assert.ok(!report.includes('abcd'));
 });
+
+test('typeNode lifecycle callbacks retain their playback owner when the framework calls them with a different receiver',()=>{
+  const playback=new NativePlayback(),times=[];const events=playbackEvents();events.time=n=>times.push(n);playback.listen(events);playback.setKeepAlive(true);
+  playback.load('https://cdn.example/callback.mp4',false);const count=nativePlayers.length;
+  const create=playback.onSurfaceCreated,change=playback.onSurfaceChanged,destroy=playback.onSurfaceDestroyed;
+  const frameworkReceiver=Object.create(null);
+  assert.doesNotThrow(()=>Reflect.apply(create,frameworkReceiver,['6541235193704']));
+  assert.equal(nativePlayers.length,count+1);const core=nativePlayers.at(-1);core.emit(8);
+  Reflect.apply(change,frameworkReceiver,['6541235193704',{surfaceWidth:640,surfaceHeight:360}]);assert.equal(core.properties.get('ohos-surface-size'),'640x360');
+  core.stream.position.emit(12);assert.equal(times.at(-1),12);
+  Reflect.apply(destroy,frameworkReceiver,['6541235193704']);assert.equal(core.surface,'');assert.equal(core.destroyed,0);playback.clear();playback.detach();
+});

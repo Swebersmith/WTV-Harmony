@@ -31,6 +31,10 @@ VideoSurface 作为 NodeController，创建 typeNode XComponent；主页面通�
 
 自动小窗通过 setAutoStartEnabled 配置，由系统在主窗口退后台时触发；不在 onBackground 内手动调用 startPiP。用户手动打开时应用应位于前台。
 
+## Surface 回调接收者
+
+1.7.3 真机日志显示 typeNode 的 onSurfaceCreated 回调在 this.attach 处抛出 TypeError，最后一条记录是 surface created，未进入 MPV attach。三个生命周期回调必须捕获 NativePlayback 实例，不能依赖桥接调用时的动态 this。1.7.4 使用箭头函数，并通过 Reflect.apply 将回调接收者替换为无原型对象，验证创建、尺寸更新和销毁均作用于原播放器。
+
 ## 真机复测
 
 逻辑测试只验证节点归属、事件路由、状态与单位转换，不能证明系统窗口已显示。

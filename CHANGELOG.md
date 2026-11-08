@@ -1,5 +1,12 @@
 # 更新记录
 
+## 1.7.4
+
+- 根据 1.7.3 真机崩溃日志定位 TypeError: undefined is not callable，发生在 NativePlayback.onSurfaceCreated 调用 this.attach 时，MPV 初始化尚未开始。
+- 三个 Surface 生命周期回调改用箭头函数捕获播放器实例，避免 typeNode 桥接以其他接收者调用时丢失实例方法和状态。
+- 新增改变回调接收者的创建 / 尺寸 / 销毁完整生命周期回归；修复前可复现 this.attach is not a function，修复后通过。
+- 保留跨重启错误日志与 TXT 导出，共 75 项检查；实际播放、小窗和还原仍需真机复测。
+
 ## 1.7.3
 
 - 启动时接入官方 HiAppEvent 的 APP_CRASH / APP_FREEZE，重启后接收系统提供的 ArkTS / Native 崩溃与冻屏信息，保存事件摘要和可读附件堆栈。

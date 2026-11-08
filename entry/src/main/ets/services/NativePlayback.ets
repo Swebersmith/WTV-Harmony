@@ -38,18 +38,21 @@ export class NativePlayback extends XComponentController implements EventObserve
   getRate(): number { return this.desiredRate; }
   getVolume(): number { return this.desiredVolume; }
   listen(events: PlaybackEvents): void { this.events = events; }
-  onSurfaceCreated(surface: string): void { PlaybackDiagnostics.record(`surface created id=${surface}`); this.attach(surface); }
-  onSurfaceChanged(surface: string, rect: SurfaceRect): void {
+  // The typeNode bridge can invoke these functions with its own receiver. Capture our playback instance.
+  onSurfaceCreated: (surface: string) => void = (surface: string): void => {
+    PlaybackDiagnostics.record(`surface created id=${surface}`); this.attach(surface);
+  };
+  onSurfaceChanged: (surface: string, rect: SurfaceRect) => void = (surface: string, rect: SurfaceRect): void => {
     if (surface === this.surface) this.resizeSurface(rect.surfaceWidth,rect.surfaceHeight);
-  }
-  onSurfaceDestroyed(surface: string): void {
+  };
+  onSurfaceDestroyed: (surface: string) => void = (surface: string): void => {
     PlaybackDiagnostics.record(`surface destroyed id=${surface}`);
     if (surface !== this.surface) return;
     if (this.keepAlive && this.player && this.request) {
       this.surface = '';
       try { this.player.native.setProperty('vid','no'); this.player.onSurfaceDestroyed(''); } catch {}
     } else this.detach();
-  }
+  };
   setKeepAlive(value: boolean): void { this.keepAlive = value; }
   isRetained(): boolean { return this.keepAlive; }
   setAudioOnly(value: boolean): void { if (this.audioOnly !== value) { this.audioOnly = value; this.applyVideoMode(); } }
@@ -155,7 +158,7 @@ export class NativePlayback extends XComponentController implements EventObserve
     this.timeout = setTimeout((): void => { if (revision === this.revision) this.fail(-2); },30000);
     try {
       PlaybackDiagnostics.record('MPV open begin');
-      this.player.open(new Media(request.url,{start:request.resume,httpHeaders:new Map<string,string>([['User-Agent','WTV-Harmony/1.7.3']])}),request.autoplay);
+      this.player.open(new Media(request.url,{start:request.resume,httpHeaders:new Map<string,string>([['User-Agent','WTV-Harmony/1.7.4']])}),request.autoplay);
       PlaybackDiagnostics.record('MPV open returned');
       this.player.setSpeed(this.desiredRate); this.player.setVolume(this.desiredVolume*100);
     } catch { this.fail(-1); }
