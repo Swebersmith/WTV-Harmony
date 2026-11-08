@@ -132,6 +132,7 @@ struct Index {
   @State castDevice: string = '';
   @State castElapsed: number = 0;
   @State castPlaying: boolean = false;
+  @State videoAspect: number = 16 / 9;
   @State pipActive: boolean = false;
   @State playbackRate: number = 1;
   @State network: string = '检查网络';
@@ -150,8 +151,10 @@ struct Index {
     this.video.listen({
       prepared:(duration: number): void => {
         this.duration = duration; this.resumeAt = 0; this.updateMetadata();
+        const size = this.video.getVideoSize();
+        this.videoAspect = size[0] > 0 && size[1] > 0 ? size[0]/size[1] : 16/9;
         this.media.setCastMedia(this.mediaUrl,this.elapsed,duration,this.currentEpisode.url,this.currentMovie.title,this.currentEpisode.title);
-        const size = this.video.getVideoSize(); this.pip.size(size[0],size[1]); this.ensurePip().catch((): void => {});
+        this.pip.size(size[0],size[1]); this.ensurePip().catch((): void => {});
       },
       time:(seconds: number): void => { this.elapsed = seconds; this.savePosition(); this.updateSystemPlayback(); },
       rate:(value: number): void => { this.playbackRate = value; this.updateSystemPlayback(); },
@@ -822,7 +825,7 @@ struct Index {
           if (this.nativePlayerMounted) {
             NativePlayer({controller:this.video,surface:this.videoSurface,title:this.currentMovie.title,subtitle:this.currentEpisode.title,status:this.adStatus,error:this.playerError,
               playing:this.playing,buffering:this.resolving || this.buffering,elapsed:this.elapsed,duration:this.duration,fullscreen:this.fullscreen,reduceMotion:this.reduceMotion,active:this.tab === 1,
-              inPip:this.pipActive,systemRate:this.playbackRate,castReady:this.sessionReady,casting:this.casting,castDevice:this.castDevice,castElapsed:this.castElapsed,castPlaying:this.castPlaying,
+              inPip:this.pipActive,systemRate:this.playbackRate,videoAspect:this.videoAspect,castReady:this.sessionReady,casting:this.casting,castDevice:this.castDevice,castElapsed:this.castElapsed,castPlaying:this.castPlaying,
               onCastToggle:(): void => this.toggleCast(),onCastStop:(): void => this.stopCasting(),
               onSmallWindow:(): void => { this.startSmallWindow(); },onRestoreWindow:(): void => this.restoreSmallWindow(),
               episodeNames:this.currentEpisodes.map((episode: Episode,index: number): string => episodeLabel(episode,this.currentMovie.title,index)),episodeIndex:this.currentIndex,

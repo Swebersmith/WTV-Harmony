@@ -28,6 +28,7 @@ export struct NativePlayer {
   @Prop episodeIndex: number = -1;
   @Prop @Watch('pipChanged') inPip: boolean = false;
   @Prop @Watch('syncRate') systemRate: number = 1;
+  @Prop @Watch('videoAspectChanged') videoAspect: number = 16 / 9;
   @Prop castReady: boolean = false;
   @Prop @Watch('castModeChanged') casting: boolean = false;
   @Prop castDevice: string = '';
@@ -42,8 +43,8 @@ export struct NativePlayer {
   onCastStop: () => void = (): void => {};
   private hideTimer: number = -1;
   private hintTimer: number = -1;
-  private widthVp: number = 360;
-  private heightVp: number = 220;
+  @State widthVp: number = 360;
+  @State heightVp: number = 220;
   private startTime: number = 0;
   private startVolume: number = 0;
   private startBrightness: number = 0.5;
@@ -86,6 +87,23 @@ export struct NativePlayer {
   syncRate(): void { this.rate = this.systemRate; }
   pipChanged(): void { this.endHold(); this.panel = ''; this.deviceVisibilityChanged(); }
   castModeChanged(): void { this.endHold(); this.panel = ''; this.visible = true; }
+  videoAspectChanged(): void { this.applyNodeSize(); }
+  private nodeAspect(): number { return Number.isFinite(this.videoAspect) && this.videoAspect > 0 ? this.videoAspect : 16/9; }
+  // Keep the video node itself in the media's aspect inside the page frame. The system PiP then
+  // scales one uniformly proportioned node instead of stretching a wide page box into a 16:9 window.
+  private nodeWidthVp(): number {
+    if (this.fullscreen || this.widthVp <= 0 || this.heightVp <= 0) return this.widthVp;
+    return Math.min(this.widthVp,this.heightVp*this.nodeAspect());
+  }
+  private nodeHeightVp(): number {
+    if (this.fullscreen || this.widthVp <= 0) return this.heightVp;
+    return Math.min(this.heightVp,this.nodeWidthVp()/this.nodeAspect());
+  }
+  private applyNodeSize(): void {
+    if (this.disposed || this.inPip) return;
+    const width = this.nodeWidthVp(), height = this.nodeHeightVp();
+    if (width > 0 && height > 0) this.controller.resize(this.getUIContext().vp2px(width),this.getUIContext().vp2px(height));
+  }
   deviceVisibilityChanged(): void {
     if (this.disposed || !this.active || !this.foreground || this.inPip) { this.endHold(); this.closeDeviceControls(); return; }
     const revision = ++this.deviceRevision;
@@ -346,8 +364,10 @@ export struct NativePlayer {
   }
   build() {
     Stack() {
-      NodeContainer(this.surface)
-        .width('100%').height('100%')
+      Stack() {
+        NodeContainer(this.surface)
+          .width('100%').height('100%')
+      }.width(this.nodeWidthVp()).height(this.nodeHeightVp()).clip(true)
       Column().width('100%').height('100%').backgroundColor(Color.Transparent)
         .gesture(GestureGroup(GestureMode.Exclusive,
           LongPressGesture({repeat:false,duration:500}).onAction((): void => {
@@ -393,7 +413,7 @@ export struct NativePlayer {
     }.width('100%').height('100%').backgroundColor('#0D141E').clip(true)
       .onAreaChange((_old: Area,next: Area): void => {
         this.widthVp = Number(next.width)||360; this.heightVp = Number(next.height)||220;
-        if (!this.inPip) this.controller.resize(this.getUIContext().vp2px(this.widthVp),this.getUIContext().vp2px(this.heightVp));
+        this.applyNodeSize();
       })
   }
 }
