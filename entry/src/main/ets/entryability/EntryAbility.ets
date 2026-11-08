@@ -7,6 +7,7 @@ export default class EntryAbility extends UIAbility {
   onCreate(want: Want, _launchParam: AbilityConstant.LaunchParam): void { this.receive(want); }
   onNewWant(want: Want, _launchParam: AbilityConstant.LaunchParam): void { this.receive(want); }
   private receive(want: Want): void {
+    if (want.parameters?.['wtv.openPlayer'] === true) AppStorage.setOrCreate('openPlayerRequest',Date.now());
     const shared = want.parameters?.['ohos.extra.param.key.content'] as string || want.uri || '';
     const match = shared.match(/https?:\/\/[^\s<>"']+/i);
     if (match) AppStorage.setOrCreate('sharedUrl',match[0]);

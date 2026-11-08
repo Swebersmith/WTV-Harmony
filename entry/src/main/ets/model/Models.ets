@@ -29,7 +29,7 @@ export interface Playlist { id: string; name: string; episodes: Episode[]; }
 export interface Detail { series: Movie; playlists: Playlist[]; episodes: Episode[]; }
 export interface WatchRecord { movie: Movie; episode: Episode; seconds: number; updated: number; }
 export interface SearchResult { results: Movie[]; hasMore: boolean; partial: boolean; }
-export interface Settings { site: string; searches: Endpoint[]; parsers: Endpoint[]; autoNext: boolean; schemaVersion?: number; blockAds?: boolean; prepareService?: string; reduceMotion?: boolean; }
+export interface Settings { site: string; searches: Endpoint[]; parsers: Endpoint[]; autoNext: boolean; schemaVersion?: number; blockAds?: boolean; prepareService?: string; reduceMotion?: boolean; backgroundPlayback?: boolean; autoPip?: boolean; }
 export interface PlaybackTarget { kind: string; url: string; }
 export interface Library { favorites: Movie[]; records: WatchRecord[]; queries: string[]; }
 export const PLATFORMS: string[] = ['tencent','iqiyi','youku','mango','bilibili'];

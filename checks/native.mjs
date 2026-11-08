@@ -12,18 +12,60 @@ const require = createRequire(import.meta.url);
 const compilerPath = process.env.ARKTS_TYPESCRIPT || require.resolve('typescript');
 const ts = require(compilerPath);
 globalThis.XComponentController=class {};
+globalThis.NavPathStack=class {size(){return 0;}clear(){} };
+globalThis.Scroller=class {};
+globalThis.$r=name=>({id:name});
 let requests = [], destroyed = 0, response = {responseCode:200,result:'{"ok":true}'};
 const http = {
   RequestMethod:{GET:'GET',POST:'POST'},HttpDataType:{STRING:0},
   createHttp:() => ({request:async (url,options) => { requests.push({url,options}); return response; },destroy:() => {destroyed++;}})
 };
-const windowApi = {AvoidAreaType:{TYPE_SYSTEM:0,TYPE_CUTOUT:1,TYPE_NAVIGATION_INDICATOR:2}};
+const windowApi = {Orientation:{UNSPECIFIED:0},AvoidAreaType:{TYPE_SYSTEM:0,TYPE_CUTOUT:1,TYPE_NAVIGATION_INDICATOR:2}};
 const deviceVolume = {level:6,min:0,max:20,listeners:new Set(),fail:false,
   getVolumeByStream(usage){assert.equal(usage,'music');if(this.fail) throw Error('unavailable');return this.level;},
   getMinVolumeByStream(){return this.min;},getMaxVolumeByStream(){return this.max;},
   on(event,usage,cb){assert.equal(event,'streamVolumeChange');assert.equal(usage,'music');this.listeners.add(cb);},
   off(event,cb){assert.equal(event,'streamVolumeChange');this.listeners.delete(cb);}};
 const audioApi = {StreamUsage:{STREAM_USAGE_MUSIC:'music'},getAudioManager:()=>({getVolumeManager:()=>deviceVolume})};
+const abilityApi={wantAgent:{OperationType:{START_ABILITY:1},WantAgentFlags:{UPDATE_PRESENT_FLAG:1},getWantAgent:async info=>({info})}};
+const deviceInfo={sdkApiVersion:26};
+let taskGate,taskFailure=false,taskNumber=100;
+const backgroundApi={ContinuousTaskRequest:class{},BackgroundTaskMode:{MODE_AUDIO_PLAYBACK:2},BackgroundTaskSubmode:{SUBMODE_AVSESSION_AUDIO_PLAYBACK:5},
+  starts:[],stops:[],listeners:new Set(),on(event,cb){this.listeners.add(cb);},off(event,cb){this.listeners.delete(cb);},
+  async startBackgroundRunning(context,request){if(taskFailure)throw Error('lease denied');this.starts.push(request);await taskGate;return {continuousTaskId:++taskNumber};},
+  async stopBackgroundRunning(context,id){this.stops.push(id);this.listeners.forEach(cb=>cb({id}));}};
+let sessionGate,activationGate;
+const systemSessions=[];
+class FakeSession {
+  commands=new Map();metadata=[];states=[];background=[];destroyed=0;active=0;rejectArtwork=false;
+  on(event,cb){this.commands.set(event,cb);}
+  async setLaunchAbility(value){this.launch=value;}
+  async setSupportedPlaySpeeds(value){this.speeds=value;}
+  async setBackgroundPlayMode(value){this.background.push(value);}
+  async setAVMetadata(value){if(this.rejectArtwork&&value.mediaImage)throw Error('artwork rejected');this.metadata.push(value);}
+  async setAVPlaybackState(value){this.states.push(value);}
+  async activate(){await activationGate;this.active++;}
+  async destroy(){this.destroyed++;}
+}
+const sessionApi={BackgroundPlayMode:{ENABLE_BACKGROUND_PLAY:0,DISABLE_BACKGROUND_PLAY:1},SkipIntervals:{SECONDS_10:10},
+  PlaybackState:{PLAYBACK_STATE_PLAY:1,PLAYBACK_STATE_PAUSE:2,PLAYBACK_STATE_BUFFERING:6},async createAVSession(context,tag,type){assert.equal(type,'video');await sessionGate;const s=new FakeSession();systemSessions.push(s);return s;}};
+let pipGate;
+const pipControllers=[];
+class FakePip {
+  callbacks=new Map();auto=false;started=0;stopped=0;statuses=[];enabled=new Map();
+  on(event,cb){this.callbacks.set(event,cb);}
+  off(event,cb){if(!cb||this.callbacks.get(event)===cb)this.callbacks.delete(event);}
+  emit(event,...args){this.callbacks.get(event)?.(...args);}
+  setAutoStartEnabled(value){this.auto=value;}
+  updatePiPControlStatus(type,status){this.statuses.push({type,status});}
+  setPiPControlEnabled(type,value){this.enabled.set(type,value);}
+  updateContentSize(w,h){this.size=[w,h];}
+  async startPiP(){this.started++;this.emit('stateChange',1,'');this.emit('stateChange',2,'');}
+  async stopPiP(){this.stopped++;this.emit('stateChange',3,'');this.emit('stateChange',4,'');}
+}
+const pipApi={enabled:true,isPiPEnabled(){return this.enabled;},PiPState:{ABOUT_TO_START:1,STARTED:2,ABOUT_TO_STOP:3,STOPPED:4,ABOUT_TO_RESTORE:5,ERROR:6},
+  PiPControlType:{VIDEO_PLAY_PAUSE:0,VIDEO_PREVIOUS:1,VIDEO_NEXT:2},PiPControlStatus:{PLAY:1,PAUSE:0},PiPTemplateType:{VIDEO_PLAY:0},VideoPlayControlGroup:{VIDEO_PREVIOUS_NEXT:101},
+  async create(config){await pipGate;const c=new FakePip();c.config=config;pipControllers.push(c);return c;}};
 const nativePlayers = [];
 const stream=()=>{const callbacks=[];return {listen:callback=>callbacks.push(callback),emit:value=>callbacks.forEach(cb=>cb(value))};};
 class FakeMpv {
@@ -51,14 +93,19 @@ function load(name) {
   if (loaded.has(name)) return loaded.get(name);
   let source = fs.readFileSync(path.resolve(here,'../entry/src/main/ets',name+'.ets'),'utf8');
   // Exercise the real component event handlers without pretending to render ArkUI's declarative DSL.
-  if (name === 'components/NativePlayer') {
+  if (name === 'components/NativePlayer' || name === 'pages/Index') {
     source = source.slice(0,source.search(/^\s+@Builder\b/m))+'\n}';
-    source = source.replace(/@Component\s+/g,'').replace(/@(Prop|State)\b/g,'')
-      .replace(/@(Watch|StorageProp)\([^)]*\)/g,'').replace('export struct NativePlayer','export class NativePlayer');
+    source = source.replace(/@(Component|Entry)\s+/g,'').replace(/@(Prop|State)\b/g,'')
+      .replace(/@(Watch|StorageProp|StorageLink)\([^)]*\)/g,'').replace('export struct NativePlayer','export class NativePlayer').replace('struct Index','export class Index');
   }
   const {outputText} = ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}});
   const module = {exports:{}};
-  const localRequire = id => id === '@kit.NetworkKit' ? {http} : id === '@kit.ArkUI' ? {window:windowApi} : id === '@kit.AudioKit' ? {audio:audioApi} : id === '@mpv-ohos/mpv-arkts' ? mpvApi : load(path.posix.normalize(path.posix.join(path.posix.dirname(name),id)));
+  const kits={'@kit.NetworkKit':{http},'@kit.ArkUI':{window:windowApi,PiPWindow:pipApi},'@kit.AudioKit':{audio:audioApi},
+    '@kit.AbilityKit':abilityApi,'@kit.BackgroundTasksKit':{backgroundTaskManager:backgroundApi},'@kit.AVSessionKit':{avSession:sessionApi},
+    '@kit.ArkData':{preferences:{}},'@kit.ShareKit':{},'@kit.UIDesignKit':{HdsTabsController:class{changeIndex(){}},hdsMaterial:{MaterialType:{ADAPTIVE:0}}},
+    '@kit.BasicServicesKit':{deviceInfo,systemDateTime:{TimeType:{STARTUP:0},getUptime:()=>123456}}};
+  const localRequire = id => kits[id] || (id.endsWith('components/WebPlayer') ? {WebPlayerHandle:class{exitFullscreen(){return false;}}} :
+    id === '@mpv-ohos/mpv-arkts' ? mpvApi : load(path.posix.normalize(path.posix.join(path.posix.dirname(name),id))));
   vm.runInThisContext(`(function(require,module,exports){${outputText}\n})`)(localRequire,module,module.exports);
   loaded.set(name,module.exports); return module.exports;
 }
@@ -66,7 +113,11 @@ const models = load('model/Models');
 const {Api,collectionPayload,collectionLines} = load('services/Api');
 const {AdFilter,originalTime,filteredTime,validatePrepared,prepareNativeMedia} = load('services/AdFilter');
 const {NativePlayback} = load('services/NativePlayback');
+const {BackgroundPlayback}=load('services/BackgroundPlayback');
+const {MediaSession}=load('services/MediaSession');
+const {PictureInPicture}=load('services/PictureInPicture');
 const {NativePlayer:NativePlayerHandlers} = load('components/NativePlayer');
+const {Index:IndexHandlers}=load('pages/Index');
 const {SystemMediaVolume,PlayerBrightness,volumeFromSwipe,brightnessFromSwipe} = load('services/PlayerDeviceControls');
 const {updateAvoidAreas,applySystemBars} = load('design/WindowStyle');
 const source = (type='wtv') => ({id:'test',name:'测试源',url:'https://source.example/api.php/provide/vod/?token=keep',type,apiKey:'',enabled:true});
@@ -412,4 +463,110 @@ test('window brightness failures report unavailable and do not restore an unread
   const win=fakeWindow(.3);win.setWindowBrightness=async()=>{throw Error('background');};
   await control.open(win,()=>failures++);control.set(.8);control.flush();await flush();assert.equal(failures,2);
   control.close();await flush();
+});
+
+const appContext={abilityInfo:{bundleName:'io.webber.wtv',name:'EntryAbility'}};
+const deferred=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};};
+test('background playback deduplicates leases, releases on pause, and uses its own task ID',async()=>{
+  const lease=new BackgroundPlayback();lease.open(appContext);const starts=backgroundApi.starts.length,stops=backgroundApi.stops.length;
+  await Promise.all([lease.sync(true),lease.sync(true)]);assert.equal(lease.isRunning(),true);assert.equal(backgroundApi.starts.length,starts+1);
+  const request=backgroundApi.starts.at(-1);assert.deepEqual(request.backgroundTaskModes,[2]);assert.deepEqual(request.backgroundTaskSubmodes,[5]);
+  assert.equal(request.wantAgent.info.wants[0].parameters['wtv.openPlayer'],true);
+  await lease.sync(false);assert.equal(lease.isRunning(),false);assert.equal(backgroundApi.stops.length,stops+1);assert.equal(typeof backgroundApi.stops.at(-1),'number');
+  await lease.close();assert.equal(backgroundApi.listeners.size,0);
+});
+test('a pause during background acquisition releases the late lease instead of keeping it alive',async()=>{
+  const gate=deferred();taskGate=gate.promise;const lease=new BackgroundPlayback();lease.open(appContext);
+  const start=lease.sync(true);await flush();const stop=lease.sync(false);gate.resolve();await Promise.all([start,stop]);taskGate=undefined;
+  assert.equal(lease.isRunning(),false);await lease.close();
+});
+test('a denied lease can be retried; system cancellation pauses only the matching active task',async()=>{
+  let canceled=0;const lease=new BackgroundPlayback();lease.open(appContext,()=>canceled++);taskFailure=true;
+  await assert.rejects(lease.sync(true),/denied/);assert.equal(lease.isRunning(),false);taskFailure=false;await lease.sync(true);
+  backgroundApi.listeners.forEach(cb=>cb({id:-500}));assert.equal(canceled,0);
+  backgroundApi.listeners.forEach(cb=>cb({id:taskNumber}));assert.equal(canceled,1);assert.equal(lease.isRunning(),false);
+  await lease.sync(true);await lease.sync(false);assert.equal(canceled,1,'our own release is not a system interruption');await lease.close();
+});
+const mediaCommands=(events=[])=>({play:()=>events.push('play'),pause:()=>events.push('pause'),stop:()=>events.push('stop'),
+  next:()=>events.push('next'),previous:()=>events.push('previous'),seek:n=>events.push(['seek',n]),skip:n=>events.push(['skip',n]),rate:n=>events.push(['rate',n])});
+test('one video session exposes system controls, return-to-player action and background mode',async()=>{
+  const service=new MediaSession(),events=[],before=systemSessions.length;
+  await Promise.all([service.open(appContext,mediaCommands(events)),service.open(appContext,mediaCommands(events))]);
+  assert.equal(systemSessions.length,before+1);const session=systemSessions.at(-1);assert.equal(service.isOpen(),true);
+  assert.equal(session.active,1);assert.equal(session.background.at(-1),0);assert.equal(session.launch.info.wants[0].parameters['wtv.openPlayer'],true);
+  session.commands.get('play')();session.commands.get('pause')();session.commands.get('playNext')();session.commands.get('playPrevious')();
+  session.commands.get('seek')(12500);session.commands.get('fastForward')();session.commands.get('rewind')(15000);session.commands.get('setSpeed')(1.5);session.commands.get('stop')();
+  assert.deepEqual(events,['play','pause','next','previous',['seek',12.5],['skip',10],['skip',-15],['rate',1.5],'stop']);
+  await service.setBackground(false);assert.equal(session.background.at(-1),1);await service.close();assert.equal(session.destroyed,1);
+});
+test('lock-screen metadata and seek progress use milliseconds; frequent ticks throttle but pause updates immediately',async()=>{
+  const service=new MediaSession();await service.open(appContext,mediaCommands());const session=systemSessions.at(-1);
+  await service.metadata('episode-1','剧名','第 1 集','https://image.example/poster.jpg',1800);
+  assert.equal(session.metadata.at(-1).duration,1800000);assert.equal(session.metadata.at(-1).subtitle,'第 1 集');
+  assert.equal(session.metadata.at(-1).mediaImage,'https://image.example/poster.jpg');
+  await service.update(true,12.5,1.5);await service.update(true,12.6,1.5);assert.equal(session.states.length,1);
+  assert.equal(session.states[0].position.elapsedTime,12500);assert.equal(session.states[0].speed,1.5);
+  await service.update(false,12.6,1.5);assert.equal(session.states.at(-1).state,2);
+  await service.update(false,25,1.5);assert.equal(session.states.at(-1).position.elapsedTime,25000);
+  session.rejectArtwork=true;await service.metadata('episode-2','第二集','第 2 集','https://image.example/rejected.jpg',1500);
+  assert.equal(session.metadata.at(-1).assetId,'episode-2');assert.equal(session.metadata.at(-1).mediaImage,undefined);await service.close();
+});
+test('closing a session during activation destroys the late candidate; reopening waits for the old close',async()=>{
+  const gate=deferred();activationGate=gate.promise;const service=new MediaSession();const open=service.open(appContext,mediaCommands());await flush();
+  const old=systemSessions.at(-1),closing=service.close(),again=service.open(appContext,mediaCommands());gate.resolve();activationGate=undefined;
+  await Promise.all([open,closing,again]);assert.equal(old.destroyed,1);assert.equal(service.isOpen(),true);assert.notEqual(systemSessions.at(-1),old);await service.close();
+});
+test('API 23 keeps basic system controls without invoking the API 24 background-mode method',async()=>{
+  deviceInfo.sdkApiVersion=23;const service=new MediaSession();await service.open(appContext,mediaCommands());await service.setBackground(false);
+  assert.deepEqual(systemSessions.at(-1).background,[]);await service.close();deviceInfo.sdkApiVersion=26;
+});
+const pictureCommands=(events=[])=>({play:()=>events.push('play'),pause:()=>events.push('pause'),next:()=>events.push('next'),previous:()=>events.push('previous'),
+  changed:n=>events.push(['active',n]),restore:()=>events.push('restore'),failed:()=>events.push('failed')});
+test('system PiP binds the existing surface and routes controls with bounded previous/next availability',async()=>{
+  const service=new PictureInPicture(),surface=new XComponentController(),events=[];
+  await service.open(appContext,surface,pictureCommands(events));const pip=pipControllers.at(-1);assert.equal(pip.config.componentController,surface);
+  assert.equal(pip.config.navigationId,'wtv-root-navigation');service.configure(true,true,true,false,true);assert.equal(pip.auto,true);
+  await service.start();assert.equal(service.isActive(),true);
+  pip.emit('controlEvent',{controlType:0,status:0});pip.emit('controlEvent',{controlType:0,status:1});pip.emit('controlEvent',{controlType:1});pip.emit('controlEvent',{controlType:2});
+  assert.deepEqual(events.filter(x=>typeof x==='string'),['pause','play','next']);service.configure(true,true,false,false,true);assert.equal(pip.auto,false);
+  assert.equal(pip.statuses.at(-1).status,0);service.size(1280,720);assert.deepEqual(pip.size,[1280,720]);await service.close();assert.equal(pip.callbacks.size,0);
+});
+test('returning from PiP preserves playback; closing the system window pauses instead',async()=>{
+  const service=new PictureInPicture(),events=[];await service.open(appContext,new XComponentController(),pictureCommands(events));service.configure(false,true,true,true,true);
+  const pip=pipControllers.at(-1);await service.start();pip.emit('stateChange',5,'');pip.emit('stateChange',4,'');
+  assert.equal(events.includes('restore'),true);assert.equal(events.includes('pause'),false);
+  await service.start();await service.stop(true);assert.equal(events.includes('pause'),false);
+  await service.start();await service.stop(false);assert.equal(events.filter(x=>x==='pause').length,1);await service.close();
+});
+test('PiP ineligibility disables auto-start, and a controller created after disposal has no listeners',async()=>{
+  const gate=deferred();pipGate=gate.promise;const service=new PictureInPicture();const open=service.open(appContext,new XComponentController(),pictureCommands());await flush();
+  const close=service.close();gate.resolve();pipGate=undefined;await Promise.all([open,close]);assert.equal(pipControllers.at(-1).callbacks.size,0);
+  await service.open(appContext,new XComponentController(),pictureCommands());service.configure(true,false,true,false,false);
+  assert.equal(pipControllers.at(-1).auto,false);await assert.rejects(service.start(),/先播放/);await service.close();
+});
+test('background audio and PiP surface handoff reuse the core and can load the next episode without a surface',()=>{
+  const player=new NativePlayback();player.listen(playbackEvents());player.setKeepAlive(true);
+  player.load('https://cdn.example/one.mp4',false);player.onSurfaceCreated('main-surface');const core=nativePlayers.at(-1);core.emit(8);
+  player.setAudioOnly(true);player.onSurfaceDestroyed('main-surface');assert.equal(core.destroyed,0);assert.equal(core.properties.get('vid'),'no');
+  player.load('https://cdn.example/two.mp4',false);assert.equal(core.media.uri,'https://cdn.example/two.mp4');core.emit(8);
+  player.onSurfaceCreated('pip-surface');assert.equal(nativePlayers.at(-1),core);assert.equal(core.destroyed,0);
+  player.setAudioOnly(false);assert.equal(core.properties.get('vid'),'auto');assert.equal(core.autoplay,true);
+  player.onSurfaceDestroyed('main-surface');assert.equal(core.destroyed,0);player.setKeepAlive(false);player.clear();player.detach();assert.equal(core.destroyed,1);
+});
+test('entering the background keeps opted-in playback, but pauses when both background and PiP are disabled',async()=>{
+  const ui=new IndexHandlers();let pauses=0,audioOnly,retained;
+  ui.video={pause:()=>pauses++,setAudioOnly:n=>audioOnly=n,setKeepAlive:n=>retained=n};ui.keepAwake=()=>{};
+  ui.mediaUrl='https://cdn.example/current.mp4';ui.foreground=false;ui.backgroundPlayback=true;ui.onForeground();assert.equal(pauses,0);assert.equal(audioOnly,true);assert.equal(retained,true);
+  ui.backgroundPlayback=false;ui.onForeground();assert.equal(pauses,1);assert.equal(retained,true,'paused core survives a surface handoff; playback permission is separate');
+  ui.pipActive=true;ui.onForeground();assert.equal(pauses,1);assert.equal(audioOnly,false);assert.equal(retained,true);
+  await ui.media.close();
+});
+test('a failed source switch releases the previous background task and disables PiP auto-start',async()=>{
+  const ui=new IndexHandlers();ui.context=appContext;ui.keepAwake=()=>{};ui.notice=()=>{};
+  ui.backgroundLease.open(appContext);await ui.backgroundLease.sync(true);
+  ui.mediaUrl='https://cdn.example/previous.mp4';ui.playing=true;ui.autoPip=true;ui.tab=1;
+  ui.api.playback=async()=>{throw Error('source unavailable');};
+  await ui.resolve();await flush();await ui.backgroundLease.queue;
+  assert.equal(ui.backgroundLease.isRunning(),false);assert.equal(ui.pip.eligible,false);assert.equal(ui.playing,false);assert.match(ui.playerError,/source unavailable/);
+  await ui.backgroundLease.close();await ui.media.close();
 });

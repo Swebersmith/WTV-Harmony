@@ -3,6 +3,7 @@ import { Player, PlayerConfig, Media, MpvLogLevel, EventObserver, MpvEvent } fro
 interface SourceRequest { url: string; hls: boolean; resume: number; autoplay: boolean; }
 interface FileEnd { error: number; entryId: number; }
 export interface PlaybackEvents {
+  rate?: (value: number) => void;
   prepared: (duration: number) => void;
   time: (seconds: number) => void;
   playing: (value: boolean) => void;
@@ -26,15 +27,41 @@ export class NativePlayback extends XComponentController implements EventObserve
   private current: number = 0;
   private desiredRate: number = 1;
   private desiredVolume: number = 1;
+  private keepAlive: boolean = false;
+  private audioOnly: boolean = false;
   private events?: PlaybackEvents;
   getRate(): number { return this.desiredRate; }
   getVolume(): number { return this.desiredVolume; }
   listen(events: PlaybackEvents): void { this.events = events; }
   onSurfaceCreated(surface: string): void { this.attach(surface); }
   onSurfaceChanged(_surface: string, rect: SurfaceRect): void { this.resize(rect.surfaceWidth,rect.surfaceHeight); }
-  onSurfaceDestroyed(surface: string): void { if (surface === this.surface) this.detach(); }
+  onSurfaceDestroyed(surface: string): void {
+    if (surface !== this.surface) return;
+    if (this.keepAlive && this.player && this.request) {
+      this.surface = '';
+      try { this.player.native.setProperty('vid','no'); this.player.onSurfaceDestroyed(''); } catch {}
+    } else this.detach();
+  }
+  setKeepAlive(value: boolean): void { this.keepAlive = value; }
+  isRetained(): boolean { return this.keepAlive; }
+  setAudioOnly(value: boolean): void { if (this.audioOnly !== value) { this.audioOnly = value; this.applyVideoMode(); } }
+  private applyVideoMode(): void {
+    try { this.player?.native.setProperty('vid',this.audioOnly || !this.surface ? 'no' : 'auto'); } catch {}
+  }
+  getVideoSize(): number[] {
+    try {
+      const width = this.player?.native.getProperty('width'), height = this.player?.native.getProperty('height');
+      if (typeof width === 'number' && typeof height === 'number' && width > 0 && height > 0) return [width,height];
+    } catch {}
+    return [1920,1080];
+  }
   attach(surface: string): void {
     if (this.surface === surface && this.player) return;
+    if (this.player && this.keepAlive && this.request && !this.failed) {
+      this.surface = surface;
+      try { this.player.onSurfaceCreated(surface); this.applyVideoMode(); } catch { this.fail(-1); }
+      return;
+    }
     if (this.player) this.detach();
     this.surface = surface;
     try {
@@ -45,6 +72,7 @@ export class NativePlayback extends XComponentController implements EventObserve
       p.native.setProperty('demuxer-max-back-bytes','16MiB');
       p.native.setProperty('network-timeout',15);
       p.onSurfaceCreated(surface);
+      this.applyVideoMode();
       p.stream.position.listen((seconds: number): void => {
         if (!this.accepts(p) || !Number.isFinite(seconds) || seconds < 0) return;
         this.current = seconds; this.events?.time(seconds);
@@ -87,7 +115,7 @@ export class NativePlayback extends XComponentController implements EventObserve
   load(url: string, hls: boolean, resume: number = 0, autoplay: boolean = true): void {
     this.request = {url,hls,resume,autoplay}; this.current = resume;
     ++this.revision; this.loaded = false; this.failed = false; this.completed = false; clearTimeout(this.timeout);
-    if (this.player && this.surface) this.open();
+    if (this.player && (this.surface || this.keepAlive)) this.open();
   }
   private open(): void {
     if (!this.player || !this.request) return;
@@ -95,7 +123,7 @@ export class NativePlayback extends XComponentController implements EventObserve
     this.events?.buffering(true);
     this.timeout = setTimeout((): void => { if (revision === this.revision) this.fail(-2); },30000);
     try {
-      this.player.open(new Media(request.url,{start:request.resume,httpHeaders:new Map<string,string>([['User-Agent','WTV-Harmony/1.6.0']])}),request.autoplay);
+      this.player.open(new Media(request.url,{start:request.resume,httpHeaders:new Map<string,string>([['User-Agent','WTV-Harmony/1.7.0']])}),request.autoplay);
       this.player.setSpeed(this.desiredRate); this.player.setVolume(this.desiredVolume*100);
     } catch { this.fail(-1); }
   }
@@ -144,7 +172,7 @@ export class NativePlayback extends XComponentController implements EventObserve
   setRate(rate: number): void {
     if (!NATIVE_RATES.includes(rate)) return;
     this.desiredRate = rate;
-    try { this.player?.setSpeed(rate); } catch {}
+    try { this.player?.setSpeed(rate); this.events?.rate?.(rate); } catch {}
   }
   setVolume(volume: number): void {
     this.desiredVolume = Math.max(0,Math.min(1,volume));

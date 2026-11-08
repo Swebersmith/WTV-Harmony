@@ -9,6 +9,8 @@ import { applySystemBars } from '../design/WindowStyle';
 import { Api } from '../services/Api';
 import { Store } from '../services/Store';
 import { MediaSession } from '../services/MediaSession';
+import { BackgroundPlayback } from '../services/BackgroundPlayback';
+import { PictureInPicture } from '../services/PictureInPicture';
 import { AdFilter, AdRange, originalTime, filteredTime, prepareNativeMedia } from '../services/AdFilter';
 import { NativePlayback } from '../services/NativePlayback';
 import { NativePlayer } from '../components/NativePlayer';
@@ -42,6 +44,11 @@ struct Index {
   private api: Api = new Api();
   private store: Store = new Store();
   private media: MediaSession = new MediaSession();
+  private backgroundLease: BackgroundPlayback = new BackgroundPlayback();
+  private pip: PictureInPicture = new PictureInPicture();
+  private backgroundWarning: boolean = false;
+  private backgroundSerial: number = 0;
+  private disposed: boolean = false;
   private adFilter: AdFilter = new AdFilter();
   private adRanges: AdRange[] = [];
   private nativeWindow?: window.Window;
@@ -64,6 +71,7 @@ struct Index {
   private activeEpisode: Episode = {title:'',url:''};
   @StorageLink('sharedUrl') @Watch('onShared') shared: string = '';
   @StorageProp('inForeground') @Watch('onForeground') foreground: boolean = true;
+  @StorageLink('openPlayerRequest') @Watch('onOpenPlayer') openPlayerRequest: number = 0;
   @StorageProp('safeTopPx') safeTopPx: number = 0;
   @StorageProp('safeBottomPx') safeBottomPx: number = 0;
   @StorageProp('safeLeftPx') safeLeftPx: number = 0;
@@ -115,6 +123,10 @@ struct Index {
   @State duration: number = 0;
   @State site: string = defaults().site;
   @State autoNext: boolean = true;
+  @State backgroundPlayback: boolean = true;
+  @State autoPip: boolean = false;
+  @State pipActive: boolean = false;
+  @State playbackRate: number = 1;
   @State network: string = '检查网络';
   @State syncing: boolean = false;
   @State sheet: boolean = false;
@@ -127,11 +139,16 @@ struct Index {
   @State editorError: string = '';
 
   aboutToAppear(): void {
+    this.disposed = false;
     this.video.listen({
-      prepared:(duration: number): void => { this.duration = duration; this.resumeAt = 0; },
-      time:(seconds: number): void => { this.elapsed = seconds; this.savePosition(); this.media.update(this.playing,seconds).catch((): void => {}); },
+      prepared:(duration: number): void => {
+        this.duration = duration; this.resumeAt = 0; this.updateMetadata();
+        const size = this.video.getVideoSize(); this.pip.size(size[0],size[1]); this.ensurePip().catch((): void => {});
+      },
+      time:(seconds: number): void => { this.elapsed = seconds; this.savePosition(); this.updateSystemPlayback(); },
+      rate:(value: number): void => { this.playbackRate = value; this.updateSystemPlayback(); },
       playing:(value: boolean): void => this.playbackChanged(value),
-      buffering:(value: boolean): void => { this.buffering = value; },
+      buffering:(value: boolean): void => { this.buffering = value; this.updateSystemPlayback(); },
       ended:(): void => { if (this.autoNext && this.currentIndex >= 0 && this.currentIndex+1 < this.currentEpisodes.length) this.neighbor(1); },
       failed:(code: number): void => this.nativePlaybackFailed(code)
     });
@@ -145,6 +162,7 @@ struct Index {
     } catch { this.tabMaterial = hdsMaterial.MaterialType.ADAPTIVE; }
     try {
       this.context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      this.backgroundLease.open(this.context,(): void => this.video.pause());
       this.nativeWindow = await window.getLastWindow(this.context);
       this.originalOrientation = this.nativeWindow.getPreferredOrientation();
       await this.store.open(this.context);
@@ -152,6 +170,8 @@ struct Index {
       this.parsers = this.store.settings.parsers;
       this.site = this.store.settings.site;
       this.autoNext = this.store.settings.autoNext;
+      this.backgroundPlayback = this.store.settings.backgroundPlayback !== false;
+      this.autoPip = this.backgroundPlayback && this.store.settings.autoPip === true;
       this.reduceMotion = this.store.settings.reduceMotion === true;
       this.blockAds = this.store.settings.blockAds !== false;
       this.prepareService = this.store.settings.prepareService || defaults().prepareService || '';
@@ -160,14 +180,17 @@ struct Index {
       this.queries = this.store.library.queries;
       this.ready = true;
       this.onShared();
+      this.onOpenPlayer();
       this.watchNetwork();
     } catch { this.notice('本地存储初始化失败，请重新启动应用'); }
   }
   aboutToDisappear(): void {
+    this.disposed = true; ++this.backgroundSerial; ++this.resolveSerial;
     clearTimeout(this.undoTimer);
     this.api.cancel();
     this.adFilter.cancel(); this.nativeFullscreenChanged(false);
-    this.video.clear();
+    this.pip.close().catch((): void => {}); this.backgroundLease.close().catch((): void => {});
+    this.video.setKeepAlive(false); this.video.clear(); this.video.detach();
     this.media.close().catch((): void => {});
     this.net?.unregister((): void => {});
     this.keepAwake(false);
@@ -182,7 +205,16 @@ struct Index {
     return false;
   }
   onForeground(): void {
-    if (!this.foreground) { this.video.pause(); this.webPlayer.exitFullscreen(); if (this.fullscreen) this.nativeFullscreenChanged(false); this.persist(); this.keepAwake(false); }
+    if (!this.foreground) {
+      if (!this.backgroundPlayback && !this.pipActive) this.video.pause();
+      this.webPlayer.exitFullscreen(); this.persist(); this.keepAwake(false);
+    } else { this.onOpenPlayer(); this.keepAwake(this.playing && this.tab === 1 && !this.pipActive); }
+    this.syncBackground(); this.syncPip();
+  }
+  onOpenPlayer(): void {
+    if (this.ready && this.foreground && this.openPlayerRequest > 0) {
+      this.openPlayerRequest = 0; this.nav.clear(); this.changeTab(1);
+    }
   }
   onShared(): void {
     if (this.ready && validUrl(this.shared)) { this.inputUrl = this.shared; this.shared = ''; this.changeTab(1); }
@@ -198,14 +230,20 @@ struct Index {
   message(error: Error): string { return error.message || '操作未成功，请检查网络后重试'; }
   persist(): void {
     if (!this.ready) return;
-    this.store.settings = {site:this.site,searches:this.sources,parsers:this.parsers,autoNext:this.autoNext,schemaVersion:2,blockAds:this.blockAds,prepareService:this.prepareService,reduceMotion:this.reduceMotion};
+    this.store.settings = {site:this.site,searches:this.sources,parsers:this.parsers,autoNext:this.autoNext,schemaVersion:2,blockAds:this.blockAds,prepareService:this.prepareService,reduceMotion:this.reduceMotion,
+      backgroundPlayback:this.backgroundPlayback,autoPip:this.autoPip};
     this.store.library = {favorites:this.favorites,records:this.records,queries:this.queries};
     this.store.save().catch((): void => this.notice('保存失败，本次修改可能无法保留'));
   }
   changeTab(index: number): void {
     if (this.tab === index) return;
-    if (this.tab === 1 && index !== 1) { this.resumeAt = originalTime(this.elapsed,this.adRanges); this.video.pause(); this.savePosition(true); this.recordReady = false; this.keepAwake(false); }
+    if (this.tab === 1 && index !== 1) {
+      this.resumeAt = originalTime(this.elapsed,this.adRanges); this.savePosition(true);
+      if (!this.backgroundPlayback && !this.pipActive) { this.video.pause(); this.recordReady = false; }
+      this.keepAwake(false);
+    }
     this.tabChangedAt = Date.now(); this.tab = index; this.tabs.changeIndex(index);
+    this.keepAwake(this.playing && this.foreground && index === 1 && !this.pipActive); this.syncPip();
   }
   repeatTab(index: number): void {
     if (index !== this.tab || Date.now()-this.tabChangedAt < 100) return;
@@ -288,6 +326,7 @@ struct Index {
     this.video.clear(); this.playing = false; this.keepAwake(false);
     this.media.update(false,this.elapsed).catch((): void => {});
     this.playerError = ''; this.resolving = true; this.mediaUrl = ''; this.elapsed = 0; this.duration = 0; this.adStatus = ''; this.adRanges = [];
+    this.syncBackground(); this.syncPip();
     this.originalMediaUrl = ''; this.filterFallbackUsed = false;
     try {
       const parser = this.parsers[this.parserIndex];
@@ -295,6 +334,9 @@ struct Index {
       const target = await this.api.playback(this.currentEpisode.url,parser);
       if (serial !== this.resolveSerial) return;
       if (target.kind === 'web') {
+        await this.pip.close(); await this.backgroundLease.sync(false); await this.media.close(); this.sessionReady = false;
+        if (serial !== this.resolveSerial) return;
+        this.pipActive = false; this.video.setKeepAlive(false); this.video.setAudioOnly(false); this.video.detach();
         this.nativePlayerMounted = false;
         if (this.fullscreen) this.nativeFullscreenChanged(false);
         this.webUrl = target.url; return;
@@ -306,9 +348,10 @@ struct Index {
       this.adRanges = plan.ranges; this.adStatus = plan.status; this.originalMediaUrl = plan.originalUrl; this.mediaHls = plan.hls;
       this.activeMovie = this.currentMovie; this.activeEpisode = this.currentEpisode;
       this.mediaUrl = plan.url; this.nativePlayerMounted = true; this.loadResumeOriginal = this.resumeAt;
-      this.video.load(plan.url,plan.hls,filteredTime(this.resumeAt,this.adRanges),this.foreground && this.tab === 1);
       await this.ensureSession();
-      await this.media.metadata(this.currentEpisode.url,this.currentMovie.title,this.currentEpisode.title);
+      if (serial !== this.resolveSerial) return;
+      this.updateMetadata(); this.syncBackground(); this.syncPip();
+      this.video.load(plan.url,plan.hls,filteredTime(this.resumeAt,this.adRanges),this.canPlayNative());
     } catch (error) {
       if (serial === this.resolveSerial) { this.playerError = this.message(error as Error); if (this.fullscreen) this.nativeFullscreenChanged(false); }
     }
@@ -321,7 +364,7 @@ struct Index {
       this.recordReady = false; this.adRanges = []; this.playerError = '';
       this.adStatus = '过滤流暂不可播放 · 已恢复直连，本次未过滤';
       this.mediaUrl = this.originalMediaUrl;
-      this.video.load(this.mediaUrl,this.mediaHls,resume,this.foreground && this.tab === 1);
+      this.video.load(this.mediaUrl,this.mediaHls,resume,this.canPlayNative());
       return;
     }
     this.playerError = code === -2 ? '媒体加载超时，请重试或切换线路' : '媒体暂不可播放，请重试或切换线路';
@@ -356,13 +399,80 @@ struct Index {
     } catch {}
   }
   async ensureSession(): Promise<void> {
-    if (this.sessionReady || !this.context) return;
+    if (this.disposed || this.sessionReady || !this.context || !this.mediaUrl) return;
     try {
-      await this.media.open(this.context,(): void => { if (this.mediaUrl && this.tab === 1 && this.foreground) this.video.start(); },
-        (): void => this.video.pause(),(): void => this.neighbor(1),(): void => this.neighbor(-1),
-        (seconds: number): void => this.video.setCurrentTime(seconds));
-      this.sessionReady = true;
+      await this.media.setBackground(this.backgroundPlayback || this.pipActive);
+      await this.media.open(this.context,{
+        play:(): void => this.playFromSystem(),pause:(): void => this.video.pause(),
+        stop:(): void => { this.video.pause(); this.pip.stop(false).catch((): void => {}); },
+        next:(): void => this.neighbor(1),previous:(): void => this.neighbor(-1),
+        seek:(seconds: number): void => this.video.setCurrentTime(seconds),
+        skip:(seconds: number): void => this.video.setCurrentTime(Math.min(Math.max(0,this.duration-0.2),Math.max(0,this.elapsed+seconds))),
+        rate:(value: number): void => this.video.setRate(value)
+      });
+      if (this.disposed) return;
+      this.sessionReady = this.media.isOpen();
+      this.updateSystemPlayback();
     } catch { this.notice('系统媒体会话暂不可用，仍可使用页面播放控件'); }
+  }
+  canPlayNative(): boolean { return !!this.mediaUrl && !this.webUrl && (this.backgroundPlayback || this.pipActive || (this.foreground && this.tab === 1)); }
+  playFromSystem(): void {
+    if (this.foreground && this.tab !== 1 && !this.backgroundPlayback && !this.pipActive) this.changeTab(1);
+    if (this.canPlayNative()) this.video.start();
+  }
+  updateSystemPlayback(): void { this.media.update(this.playing,this.elapsed,this.playbackRate,this.buffering).catch((): void => {}); }
+  updateMetadata(): void {
+    if (!this.mediaUrl || this.webUrl) return;
+    this.media.metadata(this.currentEpisode.url,this.currentMovie.title,this.currentEpisode.title,this.currentMovie.cover,this.duration).catch((): void => {});
+  }
+  syncBackground(): void {
+    const serial = ++this.backgroundSerial;
+    const allowed = this.backgroundPlayback || this.pipActive;
+    this.video.setKeepAlive(!!this.mediaUrl && !this.webUrl); this.video.setAudioOnly(!this.foreground && !this.pipActive);
+    const mode = this.media.setBackground(allowed); mode.catch((): void => {});
+    if (this.disposed || !this.context) return;
+    this.ensureSession().then(async (): Promise<void> => {
+      if (this.disposed || serial !== this.backgroundSerial) return;
+      if (allowed && this.playing && !this.sessionReady) throw new Error('会话未就绪');
+      const required = allowed && this.playing && !!this.mediaUrl && !this.webUrl;
+      if (!required) await this.backgroundLease.sync(false);
+      await mode;
+      if (required && serial === this.backgroundSerial) await this.backgroundLease.sync(true);
+    }).catch((): void => {
+      if (this.disposed || serial !== this.backgroundSerial) return;
+      if (!this.foreground && this.playing) this.video.pause();
+      if (!this.backgroundWarning) { this.backgroundWarning = true; this.notice('后台播放暂不可用，请返回应用播放'); }
+    });
+  }
+  async ensurePip(): Promise<void> {
+    if (!this.context || !this.mediaUrl || this.webUrl) throw new Error('请先播放原生视频');
+    await this.pip.open(this.context,this.video,{
+      play:(): void => this.playFromSystem(),pause:(): void => this.video.pause(),
+      next:(): void => this.neighbor(1),previous:(): void => this.neighbor(-1),
+      changed:(active: boolean): void => {
+        this.pipActive = active; this.keepAwake(this.playing && this.foreground && this.tab === 1 && !active); this.syncBackground();
+      },
+      restore:(): void => { AppStorage.setOrCreate('openPlayerRequest',Date.now()); },
+      failed:(): void => { if (!this.foreground && !this.backgroundPlayback) this.video.pause(); this.notice('系统小窗暂不可用'); }
+    });
+    this.syncPip();
+  }
+  syncPip(): void {
+    this.pip.configure(this.autoPip && this.backgroundPlayback,!!this.mediaUrl && !this.webUrl && this.tab === 1,
+      this.playing,this.currentIndex > 0,this.currentIndex >= 0 && this.currentIndex+1 < this.currentEpisodes.length);
+  }
+  async startSmallWindow(): Promise<void> {
+    try {
+      await this.ensurePip();
+      if (this.fullscreen) { this.nativeFullscreenChanged(false); await this.orientationQueue; }
+      await this.pip.start();
+    } catch (error) { this.notice(this.message(error as Error)); }
+  }
+  restoreSmallWindow(): void { this.pip.stop(true).catch((): void => this.notice('暂无法返回播放框')); }
+  setBackgroundPlayback(value: boolean): void {
+    this.backgroundPlayback = value; if (!value) this.autoPip = false;
+    this.backgroundWarning = false; this.persist(); this.syncBackground(); this.syncPip();
+    if (!value && !this.pipActive && (!this.foreground || this.tab !== 1)) this.video.pause();
   }
   neighbor(direction: number): void {
     const index = this.currentIndex+direction;
@@ -395,8 +505,8 @@ struct Index {
   playbackChanged(value: boolean): void {
     if (value) { this.suppressedRecords.delete(this.activeEpisode.url); this.recordReady = true; }
     this.playing = value;
-    this.keepAwake(value && this.foreground && this.tab === 1);
-    this.media.update(value,this.elapsed).catch((): void => {});
+    this.keepAwake(value && this.foreground && this.tab === 1 && !this.pipActive);
+    this.updateSystemPlayback(); this.syncBackground(); this.syncPip();
     if (!value) this.savePosition(true);
   }
   async paste(): Promise<void> {
@@ -630,6 +740,7 @@ struct Index {
           if (this.nativePlayerMounted) {
             NativePlayer({controller:this.video,title:this.currentMovie.title,subtitle:this.currentEpisode.title,status:this.adStatus,error:this.playerError,
               playing:this.playing,buffering:this.resolving || this.buffering,elapsed:this.elapsed,duration:this.duration,fullscreen:this.fullscreen,reduceMotion:this.reduceMotion,active:this.tab === 1,
+              inPip:this.pipActive,systemRate:this.playbackRate,onSmallWindow:(): void => { this.startSmallWindow(); },onRestoreWindow:(): void => this.restoreSmallWindow(),
               episodeNames:this.currentEpisodes.map((episode: Episode,index: number): string => episodeLabel(episode,this.currentMovie.title,index)),episodeIndex:this.currentIndex,
               onFullscreen:(value: boolean): void => this.nativeFullscreenChanged(value),onRetry:(): void => {
                 this.resumeAt = this.recordReady ? originalTime(this.elapsed,this.adRanges) : this.loadResumeOriginal; this.resolve();
@@ -801,6 +912,15 @@ struct Index {
         }.width('100%').margin({top:10})
         ForEach(this.parsers,(item: Endpoint) => { this.endpointCard(item,'parser') },(item: Endpoint): string => item.id)
         Row() {
+          Text('后台播放').fontSize(15).fontColor(INK).layoutWeight(1)
+          Toggle({type:ToggleType.Switch,isOn:this.backgroundPlayback}).selectedColor(ACCENT).onChange((value: boolean): void => this.setBackgroundPlayback(value))
+        }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24)
+        Row() {
+          Text('退出应用时自动小窗').fontSize(15).fontColor(INK).layoutWeight(1)
+          Toggle({type:ToggleType.Switch,isOn:this.autoPip}).selectedColor(ACCENT).enabled(this.backgroundPlayback)
+            .onChange((value: boolean): void => { this.autoPip = value; this.persist(); this.ensurePip().catch((): void => {}); this.syncPip(); })
+        }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24)
+        Row() {
           Text('自动播放下一集').fontSize(15).fontColor(INK).layoutWeight(1)
           Toggle({type:ToggleType.Switch,isOn:this.autoNext}).selectedColor(ACCENT).onChange((value: boolean): void => { this.autoNext = value; this.persist(); })
         }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24)
@@ -825,7 +945,7 @@ struct Index {
             .fontSize(12).fontColor(MUTED).lineHeight(19).width('100%')
         }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24)
         Column({space:8}) {
-          Text('WTV  1.6.0 · MPV').fontSize(15).fontWeight(FontWeight.Medium).fontColor(INK)
+          Text('WTV  1.7.0 · MPV').fontSize(15).fontWeight(FontWeight.Medium).fontColor(INK)
           Text('搜索、详情与片单使用鸿蒙原生页面。直链由原生播放器播放，网页线路由 ArkWeb 播放；部分验证和私有协议取决于线路本身。').fontSize(12).fontColor(MUTED).lineHeight(19)
         }.padding(18).width('100%')
       }.width('100%').padding({left:20,right:20,top:this.getUIContext().px2vp(this.safeTopPx)+64,bottom:this.getUIContext().px2vp(this.safeBottomPx)+88}).constraintSize({maxWidth:760})
@@ -882,7 +1002,7 @@ struct Index {
           systemMaterialEffect:{materialType:this.tabMaterial,materialLevel:hdsMaterial.MaterialLevel.ADAPTIVE},thermoCtrl:true})
         .animationDuration(this.reduceMotion ? 0 : 220).onChange((index: number): void => this.changeTab(index))
         .onTabBarClick((index: number): void => this.repeatTab(index)).backgroundColor(Color.Transparent).width('100%').height('100%')
-    }.hideTitleBar(this.fullscreen || this.webFullscreen).hideBackButton(true).titleMode(HdsNavigationTitleMode.MINI)
+    }.id('wtv-root-navigation').hideTitleBar(this.fullscreen || this.webFullscreen).hideBackButton(true).titleMode(HdsNavigationTitleMode.MINI)
       .titleBar({
         avoidLayoutSafeArea:true,enableComponentSafeArea:false,
         padding:{start:LengthMetrics.vp(20),end:LengthMetrics.vp(20)},

@@ -23,6 +23,10 @@ export struct NativePlayer {
   @Prop @Watch('deviceVisibilityChanged') active: boolean = true;
   @Prop episodeNames: string[] = [];
   @Prop episodeIndex: number = -1;
+  @Prop @Watch('pipChanged') inPip: boolean = false;
+  @Prop @Watch('syncRate') systemRate: number = 1;
+  onSmallWindow: () => void = (): void => {};
+  onRestoreWindow: () => void = (): void => {};
   onFullscreen: (value: boolean) => void = (): void => {};
   onEpisode: (index: number) => void = (): void => {};
   onRetry: () => void = (): void => {};
@@ -68,9 +72,11 @@ export struct NativePlayer {
   @StorageProp('inForeground') @Watch('deviceVisibilityChanged') foreground: boolean = true;
 
   aboutToAppear(): void { this.disposed = false; this.rate = this.controller.getRate(); this.controller.setVolume(1); this.deviceVisibilityChanged(); }
-  aboutToDisappear(): void { this.disposed = true; this.closeDeviceControls(); this.endHold(); clearTimeout(this.hideTimer); clearTimeout(this.hintTimer); this.controller.detach(); }
+  aboutToDisappear(): void { this.disposed = true; this.closeDeviceControls(); this.endHold(); clearTimeout(this.hideTimer); clearTimeout(this.hintTimer); if (!this.controller.isRetained()) this.controller.detach(); }
+  syncRate(): void { this.rate = this.systemRate; }
+  pipChanged(): void { this.endHold(); this.panel = ''; this.deviceVisibilityChanged(); }
   deviceVisibilityChanged(): void {
-    if (this.disposed || !this.active || !this.foreground) { this.closeDeviceControls(); return; }
+    if (this.disposed || !this.active || !this.foreground || this.inPip) { this.endHold(); this.closeDeviceControls(); return; }
     const revision = ++this.deviceRevision;
     this.volumeReady = this.volumeService.open((value: MediaVolume): void => {
       this.volumeLevel = value.level; this.volumeMin = value.min; this.volumeMax = value.max;
@@ -137,14 +143,14 @@ export struct NativePlayer {
   setRate(value: number): void { this.rate = value; this.controller.setRate(value); this.activity(); }
   endHold(): void { if (this.holding) { this.holding = false; this.controller.setRate(this.oldRate); this.hint = ''; } }
   doubleTap(event: GestureEvent): void {
-    if (this.locked) return;
+    if (this.locked || this.inPip) return;
     const x = event.fingerList[0]?.localX || 0;
     if (x < this.widthVp/3) { this.seek(this.elapsed-10); this.showHint('快退 10 秒'); }
     else if (x > this.widthVp*2/3) { this.seek(this.elapsed+10); this.showHint('快进 10 秒'); }
     else this.toggle();
   }
   panStart(event: GestureEvent): void {
-    if (this.locked) return;
+    if (this.locked || this.inPip) return;
     this.endHold(); this.panAxis = 0; this.startTime = this.elapsed; this.volumeService.refresh();
     this.startVolume = this.volumeLevel; this.startBrightness = this.screenBrightness;
     const startX = (event.fingerList[0]?.localX || 0)-event.offsetX;
@@ -152,7 +158,7 @@ export struct NativePlayer {
     this.panSeek = this.elapsed; clearTimeout(this.hideTimer);
   }
   panUpdate(event: GestureEvent): void {
-    if (this.locked) return;
+    if (this.locked || this.inPip) return;
     if (this.panAxis === 0) this.panAxis = Math.abs(event.offsetX) > Math.abs(event.offsetY) ? 1 : 2;
     if (this.panAxis === 1 && this.duration > 0) {
       this.scrubbing = true;
@@ -201,6 +207,7 @@ export struct NativePlayer {
           Text(this.subtitle || '原生播放').fontSize(10).fontColor('#B9C6CF').maxLines(1).width('100%')
         }.layoutWeight(1)
         if (this.fullscreen) { this.icon($r('app.media.player_lock'),'锁定播放控件',(): void => { this.locked = true; this.panel = ''; this.visible = false; }) }
+        this.icon($r('app.media.player_pip'),'小窗播放',(): void => this.onSmallWindow())
         this.icon($r('app.media.player_settings'),'播放设置',(): void => this.openPanel('settings'))
       }.width('100%')
       Blank()
@@ -293,15 +300,15 @@ export struct NativePlayer {
       Column().width('100%').height('100%').backgroundColor(Color.Transparent)
         .gesture(GestureGroup(GestureMode.Exclusive,
           LongPressGesture({repeat:false,duration:500}).onAction((): void => {
-            if (this.locked || !this.playing) return;
+            if (this.locked || this.inPip || !this.playing) return;
             this.oldRate = this.rate; this.holding = true; this.controller.setRate(2); this.hint = '2× 加速中 · 松手恢复';
           }).onActionEnd((): void => this.endHold()).onActionCancel((): void => this.endHold()),
           PanGesture({direction:PanDirection.All,distance:12}).onActionStart((event: GestureEvent): void => this.panStart(event)).onActionUpdate((event: GestureEvent): void => this.panUpdate(event))
             .onActionEnd((): void => this.panEnd(true)).onActionCancel((): void => this.panEnd(false)),
           TapGesture({count:2}).onAction((event: GestureEvent): void => this.doubleTap(event)),
-          TapGesture().onAction((): void => { if (!this.locked) { this.visible = !this.visible; this.panel = ''; this.armHide(); } })
+          TapGesture().onAction((): void => { if (!this.locked && !this.inPip) { this.visible = !this.visible; this.panel = ''; this.armHide(); } })
         ))
-      if ((this.visible || !this.playing) && !this.locked && !this.panel) { this.controls() }
+      if ((this.visible || !this.playing) && !this.locked && !this.panel && !this.inPip) { this.controls() }
       if (this.buffering && !this.error) { LoadingProgress().width(34).height(34).color(MINT).hitTestBehavior(HitTestMode.None) }
       if (this.hint) { Text(this.hint).fontSize(13).fontColor(WHITE).backgroundColor('#C0192631').padding(12).borderRadius(12).hitTestBehavior(HitTestMode.None) }
       if (this.active && this.foreground && this.volumeReady && this.volumeCommandIssued) {
@@ -309,6 +316,13 @@ export struct NativePlayer {
           .visibility(this.volumePanelVisible ? Visibility.Visible : Visibility.Hidden).hitTestBehavior(HitTestMode.None)
       }
       if (this.panel && !this.locked) { this.optionsPanel() }
+      if (this.inPip) {
+        Column({space:12}) {
+          Text('正在小窗播放').fontSize(14).fontColor(WHITE)
+          Button('返回播放框',{type:ButtonType.Normal}).height(36).fontSize(12).backgroundColor(MINT).fontColor('#132A29').borderRadius(12)
+            .onClick((): void => this.onRestoreWindow())
+        }.width('100%').height('100%').justifyContent(FlexAlign.Center).backgroundColor('#0D141E')
+      }
       if (this.locked) {
         Row() {
           this.icon($r('app.media.player_unlock'),'解锁播放控件',(): void => { this.locked = false; this.activity(); })
@@ -327,7 +341,7 @@ export struct NativePlayer {
     }.width('100%').height('100%').backgroundColor('#0D141E').clip(true)
       .onAreaChange((_old: Area,next: Area): void => {
         this.widthVp = Number(next.width)||360; this.heightVp = Number(next.height)||220;
-        this.controller.resize(this.getUIContext().vp2px(this.widthVp),this.getUIContext().vp2px(this.heightVp));
+        if (!this.inPip) this.controller.resize(this.getUIContext().vp2px(this.widthVp),this.getUIContext().vp2px(this.heightVp));
       })
   }
 }
