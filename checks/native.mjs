@@ -18,6 +18,12 @@ const http = {
   createHttp:() => ({request:async (url,options) => { requests.push({url,options}); return response; },destroy:() => {destroyed++;}})
 };
 const windowApi = {AvoidAreaType:{TYPE_SYSTEM:0,TYPE_CUTOUT:1,TYPE_NAVIGATION_INDICATOR:2}};
+const deviceVolume = {level:6,min:0,max:20,listeners:new Set(),fail:false,
+  getVolumeByStream(usage){assert.equal(usage,'music');if(this.fail) throw Error('unavailable');return this.level;},
+  getMinVolumeByStream(){return this.min;},getMaxVolumeByStream(){return this.max;},
+  on(event,usage,cb){assert.equal(event,'streamVolumeChange');assert.equal(usage,'music');this.listeners.add(cb);},
+  off(event,cb){assert.equal(event,'streamVolumeChange');this.listeners.delete(cb);}};
+const audioApi = {StreamUsage:{STREAM_USAGE_MUSIC:'music'},getAudioManager:()=>({getVolumeManager:()=>deviceVolume})};
 const nativePlayers = [];
 const stream=()=>{const callbacks=[];return {listen:callback=>callbacks.push(callback),emit:value=>callbacks.forEach(cb=>cb(value))};};
 class FakeMpv {
@@ -46,7 +52,7 @@ function load(name) {
   const source = fs.readFileSync(path.resolve(here,'../entry/src/main/ets',name+'.ets'),'utf8');
   const {outputText} = ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}});
   const module = {exports:{}};
-  const localRequire = id => id === '@kit.NetworkKit' ? {http} : id === '@kit.ArkUI' ? {window:windowApi} : id === '@mpv-ohos/mpv-arkts' ? mpvApi : load(path.posix.normalize(path.posix.join(path.posix.dirname(name),id)));
+  const localRequire = id => id === '@kit.NetworkKit' ? {http} : id === '@kit.ArkUI' ? {window:windowApi} : id === '@kit.AudioKit' ? {audio:audioApi} : id === '@mpv-ohos/mpv-arkts' ? mpvApi : load(path.posix.normalize(path.posix.join(path.posix.dirname(name),id)));
   vm.runInThisContext(`(function(require,module,exports){${outputText}\n})`)(localRequire,module,module.exports);
   loaded.set(name,module.exports); return module.exports;
 }
@@ -54,6 +60,7 @@ const models = load('model/Models');
 const {Api,collectionPayload,collectionLines} = load('services/Api');
 const {AdFilter,originalTime,filteredTime,validatePrepared,prepareNativeMedia} = load('services/AdFilter');
 const {NativePlayback} = load('services/NativePlayback');
+const {SystemMediaVolume,PlayerBrightness,volumeFromSwipe,brightnessFromSwipe} = load('services/PlayerDeviceControls');
 const {updateAvoidAreas,applySystemBars} = load('design/WindowStyle');
 const source = (type='wtv') => ({id:'test',name:'测试源',url:'https://source.example/api.php/provide/vod/?token=keep',type,apiKey:'',enabled:true});
 const fixture = name => JSON.parse(fs.readFileSync(path.join(here,'fixtures',name+'.json'),'utf8'));
@@ -277,6 +284,7 @@ test('MPV waits for the requested file, carries HTTP headers and source-time res
   events.prepared=value=>duration=value;events.time=value=>time=value;player.listen(events);
   player.load('https://filter.example/media?token=x',true,27.5,true);player.attach('surface-1');await flush();
   const p=nativePlayers.at(-1);
+  assert.equal(p.volume,100,'default MPV gain leaves system media volume unattenuated');
   assert.equal(p.surface,'surface-1');assert.equal(p.media.start,27.5);assert.ok(p.media.httpHeaders.get('User-Agent').startsWith('WTV-Harmony/'));
   assert.equal(p.played,0);p.emit(8);assert.equal(p.played,1);assert.equal(duration,120);
   p.stream.position.emit(30);assert.equal(time,30);player.setCurrentTime(42.5);assert.equal(p.currentTime,42.5);
@@ -315,4 +323,54 @@ test('MPV playback completion reports once per play, including an explicit repla
   player.load('https://cdn.example/a.mp4',false);player.onSurfaceCreated('surface-eof');const p=nativePlayers.at(-1);p.emit(8);
   p.stream.eof.emit(true);p.stream.eof.emit(true);assert.equal(endings,1);
   player.start();p.stream.eof.emit(true);assert.equal(endings,2);player.clear();player.detach();
+});
+
+test('vertical gestures use device volume range and clamp brightness without dim overlays',()=>{
+  assert.equal(volumeFromSwipe(6,0,20,-80,200),16);
+  assert.equal(volumeFromSwipe(6,0,20,999,200),0);
+  assert.equal(volumeFromSwipe(6,0,20,-999,200),20);
+  assert.equal(volumeFromSwipe(5,2,10,24,100),3);
+  assert.equal(brightnessFromSwipe(0.5,-40,200),0.75);
+  assert.equal(brightnessFromSwipe(0.5,999,200),0.05);
+  assert.equal(brightnessFromSwipe(0.5,-999,0),1);
+});
+test('system media volume reads actual hardware changes and releases the exact listener',()=>{
+  const control=new SystemMediaVolume(),changes=[];
+  assert.equal(control.open(value=>changes.push(value)),true);
+  assert.deepEqual(changes.at(-1),{level:6,min:0,max:20});
+  deviceVolume.level=9;deviceVolume.max=30;deviceVolume.listeners.forEach(cb=>cb({volume:9}));
+  assert.deepEqual(changes.at(-1),{level:9,min:0,max:30});
+  control.open(value=>changes.push(value));assert.equal(deviceVolume.listeners.size,1);
+  control.close();assert.equal(deviceVolume.listeners.size,0);assert.equal(control.refresh(),false);
+  deviceVolume.level=6;deviceVolume.max=20;
+});
+test('unavailable system volume does not leave a listener or invent a volume range',()=>{
+  const control=new SystemMediaVolume();deviceVolume.fail=true;
+  assert.equal(control.open(()=>assert.fail('invalid snapshot')),false);assert.equal(deviceVolume.listeners.size,0);
+  deviceVolume.fail=false;deviceVolume.max=0;
+  assert.equal(control.open(()=>assert.fail('invalid range')),false);assert.equal(deviceVolume.listeners.size,0);
+  deviceVolume.max=20;
+});
+const fakeWindow=(initial=-1)=>({value:initial,writes:[],getWindowProperties(){return {brightness:this.value};},async setWindowBrightness(value){this.value=value;this.writes.push(value);}});
+test('window brightness coalesces changes, follows system, and restores the original on leaving',async()=>{
+  const win=fakeWindow(),control=new PlayerBrightness();
+  assert.equal(await control.open(win,()=>assert.fail('window failure')),-1);
+  control.set(.6);control.set(.75);control.flush();await flush();assert.deepEqual(win.writes,[.75]);
+  assert.equal(control.followSystem(),true);await flush();assert.equal(win.value,-1);
+  control.set(.8);control.flush();await flush();control.close();await flush();
+  assert.deepEqual(win.writes,[.75,-1,.8,-1]);assert.equal(control.set(.9),false);
+});
+test('leaving cancels pending brightness requests before another player reads its baseline',async()=>{
+  const win=fakeWindow(.35),first=new PlayerBrightness(),second=new PlayerBrightness();
+  await first.open(win,()=>assert.fail());first.set(.9);first.flush();first.close();
+  assert.equal(await second.open(win,()=>assert.fail()),.35);assert.deepEqual(win.writes,[.35]);
+  second.set(.8);second.close();await flush();assert.equal(win.value,.35);
+});
+test('window brightness failures report unavailable and do not restore an unread baseline',async()=>{
+  let failures=0;const control=new PlayerBrightness();
+  assert.equal(await control.open({getWindowProperties(){throw Error('window gone');},setWindowBrightness(){assert.fail();}},()=>failures++),undefined);
+  assert.equal(control.set(.7),false);control.close();await flush();assert.equal(failures,1);
+  const win=fakeWindow(.3);win.setWindowBrightness=async()=>{throw Error('background');};
+  await control.open(win,()=>failures++);control.set(.8);control.flush();await flush();assert.equal(failures,2);
+  control.close();await flush();
 });

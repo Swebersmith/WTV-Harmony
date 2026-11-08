@@ -54,6 +54,10 @@ struct Index {
   private detailSerial: number = 0;
   private resolveSerial: number = 0;
   private savedAt: number = 0;
+  private suppressedRecords: Set<string> = new Set<string>();
+  private undoRecord?: WatchRecord;
+  private undoIndex: number = 0;
+  private undoTimer: number = -1;
   private resumeAt: number = 0;
   private recordReady: boolean = false;
   private activeMovie: Movie = emptyMovie();
@@ -80,6 +84,7 @@ struct Index {
   @State queries: string[] = [];
   @State favorites: Movie[] = [];
   @State records: WatchRecord[] = [];
+  @State undoRecordVisible: boolean = false;
   @State loading: boolean = false;
   @State hasMore: boolean = false;
   @State page: number = 1;
@@ -95,6 +100,7 @@ struct Index {
   @State currentIndex: number = -1;
   @State inputUrl: string = '';
   @State mediaUrl: string = '';
+  @State nativePlayerMounted: boolean = false;
   @State webUrl: string = '';
   @State blockAds: boolean = true;
   @State prepareService: string = defaults().prepareService || '';
@@ -158,6 +164,7 @@ struct Index {
     } catch { this.notice('本地存储初始化失败，请重新启动应用'); }
   }
   aboutToDisappear(): void {
+    clearTimeout(this.undoTimer);
     this.api.cancel();
     this.adFilter.cancel(); this.nativeFullscreenChanged(false);
     this.video.clear();
@@ -288,6 +295,7 @@ struct Index {
       const target = await this.api.playback(this.currentEpisode.url,parser);
       if (serial !== this.resolveSerial) return;
       if (target.kind === 'web') {
+        this.nativePlayerMounted = false;
         if (this.fullscreen) this.nativeFullscreenChanged(false);
         this.webUrl = target.url; return;
       }
@@ -297,7 +305,7 @@ struct Index {
       if (serial !== this.resolveSerial) return;
       this.adRanges = plan.ranges; this.adStatus = plan.status; this.originalMediaUrl = plan.originalUrl; this.mediaHls = plan.hls;
       this.activeMovie = this.currentMovie; this.activeEpisode = this.currentEpisode;
-      this.mediaUrl = plan.url; this.loadResumeOriginal = this.resumeAt;
+      this.mediaUrl = plan.url; this.nativePlayerMounted = true; this.loadResumeOriginal = this.resumeAt;
       this.video.load(plan.url,plan.hls,filteredTime(this.resumeAt,this.adRanges),this.foreground && this.tab === 1);
       await this.ensureSession();
       await this.media.metadata(this.currentEpisode.url,this.currentMovie.title,this.currentEpisode.title);
@@ -368,7 +376,7 @@ struct Index {
     this.inputUrl = this.currentEpisode.url; this.resumeAt = 0; this.resolve();
   }
   savePosition(force: boolean = false): void {
-    if (!this.recordReady || !this.activeEpisode.url || (!force && Date.now()-this.savedAt < 10000)) return;
+    if (!this.recordReady || !this.activeEpisode.url || this.suppressedRecords.has(this.activeEpisode.url) || (!force && Date.now()-this.savedAt < 10000)) return;
     this.savedAt = Date.now();
     const record: WatchRecord = {movie:this.activeMovie,episode:this.activeEpisode,seconds:originalTime(this.elapsed,this.adRanges),updated:Date.now()};
     this.records = [record,...this.records.filter((r: WatchRecord): boolean => r.episode.url !== record.episode.url)].slice(0,100);
@@ -385,7 +393,7 @@ struct Index {
     }).catch((): void => {});
   }
   playbackChanged(value: boolean): void {
-    if (value) this.recordReady = true;
+    if (value) { this.suppressedRecords.delete(this.activeEpisode.url); this.recordReady = true; }
     this.playing = value;
     this.keepAwake(value && this.foreground && this.tab === 1);
     this.media.update(value,this.elapsed).catch((): void => {});
@@ -451,7 +459,26 @@ struct Index {
   }
   clearHistory(): void {
     this.getUIContext().getPromptAction().showDialog({title:'清空观看记录',message:'删除本机保存的观看进度和最近搜索？',buttons:[{text:'取消',color:ACCENT},{text:'清空',color:'#C04444'}]})
-      .then((result): void => { if (result.index === 1) { this.records = []; this.queries = []; this.persist(); } });
+      .then((result): void => { if (result.index === 1) { clearTimeout(this.undoTimer); this.undoRecordVisible = false; this.undoRecord = undefined; this.records = []; this.queries = []; this.persist(); } });
+  }
+  deleteRecord(record: WatchRecord): void {
+    const index = this.records.findIndex((item: WatchRecord): boolean => item.episode.url === record.episode.url);
+    if (index < 0) return;
+    this.undoRecord = this.records[index]; this.undoIndex = index; this.suppressedRecords.add(record.episode.url);
+    this.getUIContext().animateTo({duration:this.reduceMotion ? 0 : 180,curve:Curve.EaseOut},(): void => {
+      this.records = this.records.filter((item: WatchRecord): boolean => item.episode.url !== record.episode.url); this.undoRecordVisible = true;
+    });
+    clearTimeout(this.undoTimer);
+    this.undoTimer = setTimeout((): void => { this.undoRecordVisible = false; this.undoRecord = undefined; },5000);
+    this.persist();
+  }
+  restoreRecord(): void {
+    const record = this.undoRecord; if (!record) return;
+    this.suppressedRecords.delete(record.episode.url);
+    if (!this.records.some((item: WatchRecord): boolean => item.episode.url === record.episode.url)) {
+      const records = this.records.slice(); records.splice(Math.min(this.undoIndex,records.length),0,record); this.records = records.slice(0,100);
+    }
+    clearTimeout(this.undoTimer); this.undoRecordVisible = false; this.undoRecord = undefined; this.persist();
   }
   time(seconds: number): string { return `${Math.floor(seconds/60)}:${String(Math.floor(seconds%60)).padStart(2,'0')}`; }
 
@@ -615,9 +642,9 @@ struct Index {
       Column({space:this.fullscreen || this.webFullscreen ? 0 : 16}) {
         if (!this.fullscreen && !this.webFullscreen) { this.heading('正在播放','让画面留在这里，好戏接着看') }
         Stack() {
-          if (this.mediaUrl) {
+          if (this.nativePlayerMounted) {
             NativePlayer({controller:this.video,title:this.currentMovie.title,subtitle:this.currentEpisode.title,status:this.adStatus,error:this.playerError,
-              playing:this.playing,buffering:this.buffering,elapsed:this.elapsed,duration:this.duration,fullscreen:this.fullscreen,reduceMotion:this.reduceMotion,
+              playing:this.playing,buffering:this.resolving || this.buffering,elapsed:this.elapsed,duration:this.duration,fullscreen:this.fullscreen,reduceMotion:this.reduceMotion,active:this.tab === 1,
               episodeNames:this.currentEpisodes.map((episode: Episode,index: number): string => episodeLabel(episode,this.currentMovie.title,index)),episodeIndex:this.currentIndex,
               onFullscreen:(value: boolean): void => this.nativeFullscreenChanged(value),onRetry:(): void => {
                 this.resumeAt = this.recordReady ? originalTime(this.elapsed,this.adRanges) : this.loadResumeOriginal; this.resolve();
@@ -635,7 +662,7 @@ struct Index {
           }
         }.width('100%').height(this.fullscreen || this.webFullscreen ? '100%' : 224).backgroundColor('#0D141E').borderRadius(this.fullscreen || this.webFullscreen ? 0 : 22).clip(true)
         if (!this.fullscreen && !this.webFullscreen) {
-        if (this.playerError && !this.mediaUrl) { this.errorPanel(this.playerError) }
+        if (this.playerError && !this.nativePlayerMounted) { this.errorPanel(this.playerError) }
         if (this.currentEpisode.url) {
           Row() {
             Column({space:4}) {
@@ -696,22 +723,34 @@ struct Index {
   }
   @Builder
   libraryPage() {
-    Scroll(this.libraryScroll) {
-      Column({space:14}) {
-        this.heading('我的片单','收藏想看的，接着上次的进度')
+    List({space:14,scroller:this.libraryScroll}) {
+      ListItem() { this.heading('我的片单','收藏想看的，接着上次的进度') }
+      ListItem() {
         Row({space:12}) {
           this.libraryStat(String(this.favorites.length),'部收藏')
           this.libraryStat(String(this.records.length),'条观看记录')
         }.width('100%').margin({bottom:8})
-        Text(`收藏 · ${this.favorites.length}`).fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-        if (!this.favorites.length) { Text('在影片详情中点击“加入收藏”').fontSize(14).fontColor(MUTED).width('100%').padding(18) }
-        ForEach(this.favorites,(item: Movie) => { this.movieCard(item) },(item: Movie): string => movieKey(item))
+      }
+      ListItem() { Text(`收藏 · ${this.favorites.length}`).fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).width('100%') }
+      if (!this.favorites.length) { ListItem() { Text('在影片详情中点击“加入收藏”').fontSize(14).fontColor(MUTED).width('100%').padding(18) } }
+      ForEach(this.favorites,(item: Movie) => { ListItem() { this.movieCard(item) } },(item: Movie): string => movieKey(item))
+      ListItem() {
         Row() {
           Text('继续观看').fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
           Button('清空记录').fontSize(12).fontColor(MUTED).backgroundColor(Color.Transparent).onClick((): void => this.clearHistory())
         }.width('100%').margin({top:16})
-        if (!this.records.length) { Text('开始播放后，进度将保存在本机').fontSize(14).fontColor(MUTED).width('100%').padding(18) }
-        ForEach(this.records,(record: WatchRecord) => {
+      }
+      if (this.undoRecordVisible) {
+        ListItem() {
+          Row() {
+            Text('已删除观看记录').fontSize(12).fontColor(MUTED).layoutWeight(1)
+            Button('撤销',{type:ButtonType.Normal}).height(34).fontSize(12).fontColor(EMPHASIS).backgroundColor(Color.Transparent).onClick((): void => this.restoreRecord())
+          }.padding({left:16,right:8,top:4,bottom:4}).width('100%').backgroundColor(CARD).borderRadius(16)
+        }
+      }
+      if (!this.records.length) { ListItem() { Text('开始播放后，进度将保存在本机').fontSize(14).fontColor(MUTED).width('100%').padding(18) } }
+      ForEach(this.records,(record: WatchRecord) => {
+        ListItem() {
           Row({space:12}) {
             Column({space:6}) {
               Text(record.movie.title).fontSize(16).fontWeight(FontWeight.Medium).fontColor(INK).width('100%')
@@ -719,9 +758,22 @@ struct Index {
             }.layoutWeight(1)
             Button('续播').fontSize(13).backgroundColor(ACCENT).onClick((): void => this.resume(record))
           }.padding(18).backgroundColor(CARD).borderRadius(24).width('100%')
-        },(record: WatchRecord): string => record.episode.url)
-      }.width('100%').padding({left:20,right:20,top:this.getUIContext().px2vp(this.safeTopPx)+8,bottom:this.getUIContext().px2vp(this.safeBottomPx)+96}).constraintSize({maxWidth:760})
-    }.width('100%').height('100%').scrollBar(BarState.Off).edgeEffect(EdgeEffect.Spring)
+        }.borderRadius(24).clip(true).swipeAction({end:{builder:(): void => { this.recordDeleteAction(record); },actionAreaDistance:56,onAction:(): void => this.deleteRecord(record)},edgeEffect:SwipeEdgeEffect.Spring})
+          .accessibilityDescription('左滑删除观看记录')
+      },(record: WatchRecord): string => record.episode.url)
+    }.width('100%').height('100%').padding({left:20,right:20}).constraintSize({maxWidth:760})
+      .contentStartOffset(this.getUIContext().px2vp(this.safeTopPx)+8).contentEndOffset(this.getUIContext().px2vp(this.safeBottomPx)+96)
+      .scrollBar(BarState.Off).edgeEffect(EdgeEffect.Spring)
+  }
+  @Builder
+  recordDeleteAction(record: WatchRecord) {
+    Button({type:ButtonType.Normal}) {
+      Column({space:5}) {
+        SymbolGlyph($r('sys.symbol.trash')).fontSize(20).fontColor([Color.White])
+        Text('删除').fontSize(12).fontWeight(FontWeight.Medium).fontColor(Color.White)
+      }.justifyContent(FlexAlign.Center).height('100%').width('100%')
+    }.width(72).height('100%').backgroundColor('#D94D59').borderRadius(24).accessibilityText('删除这条观看记录')
+      .onClick((): void => this.deleteRecord(record))
   }
   @Builder
   libraryStat(value: string, label: string) {
@@ -792,7 +844,7 @@ struct Index {
             .fontSize(12).fontColor(MUTED).lineHeight(19).width('100%')
         }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24)
         Column({space:8}) {
-          Text('WTV 原生影院  1.4.0 · MPV').fontSize(15).fontWeight(FontWeight.Medium).fontColor(INK)
+          Text('WTV  1.5.0 · MPV').fontSize(15).fontWeight(FontWeight.Medium).fontColor(INK)
           Text('搜索、详情与片单使用鸿蒙原生页面。直链由原生播放器播放，网页线路由 ArkWeb 播放；部分验证和私有协议取决于线路本身。').fontSize(12).fontColor(MUTED).lineHeight(19)
         }.padding(18).width('100%')
       }.width('100%').padding({left:20,right:20,top:this.getUIContext().px2vp(this.safeTopPx)+8,bottom:this.getUIContext().px2vp(this.safeBottomPx)+96}).constraintSize({maxWidth:760})
