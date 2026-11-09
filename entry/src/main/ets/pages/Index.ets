@@ -353,6 +353,16 @@ struct Index {
     this.favorites = this.favorites.filter((m: Movie): boolean => !(m.title === item.title && m.year === item.year));
     this.persist(); this.notice('已取消收藏');
   }
+  showFavoriteMenu(item: Movie): void {
+    const detail = [item.year,item.remarks].filter((value: string): boolean => !!value).join(' · ') || '选择操作';
+    this.getUIContext().getPromptAction().showDialog({
+      title:item.title,message:detail,
+      buttons:[{text:'取消收藏',color:'#C04444'},{text:'查看详情',color:ACCENT},{text:'取消',color:MUTED}]
+    }).then((result): void => {
+      if (result.index === 0) this.removeFavorite(item);
+      else if (result.index === 1) this.openMovie(item);
+    });
+  }
   chooseEpisode(index: number): void {
     const episodes = this.lines[this.lineIndex]?.episodes || [];
     if (!episodes[index]) return;
@@ -770,8 +780,8 @@ struct Index {
       style:{
         scrollEffectOpts:{enableScrollEffect:true,scrollEffectType:ScrollEffectType.IMMERSIVE_GRADIENT_BLUR,
           blurEffectiveStartOffset:LengthMetrics.vp(0),blurEffectiveEndOffset:LengthMetrics.vp(56)},
-        originalStyle:{backgroundStyle:{backgroundColor:Color.Transparent,blurRadius:0},contentStyle:{titleStyle:{mainTitleColor:INK}}},
-        scrollEffectStyle:{backgroundStyle:{backgroundColor:BG,blurRadius:20},contentStyle:{titleStyle:{mainTitleColor:INK}}},
+        originalStyle:{backgroundStyle:{backgroundColor:Color.Transparent,blurRadius:0},contentStyle:{titleStyle:{mainTitleColor:INK},backIconStyle:{iconColor:INK}}},
+        scrollEffectStyle:{backgroundStyle:{backgroundColor:BG,blurRadius:20},contentStyle:{titleStyle:{mainTitleColor:INK},backIconStyle:{iconColor:INK}}},
         systemMaterialEffect:{materialType:this.tabMaterial,materialLevel:hdsMaterial.MaterialLevel.ADAPTIVE},thermoCtrl:true
       }
     };
@@ -1064,24 +1074,17 @@ struct Index {
   @Builder
   libraryPage() {
     List({space:14,scroller:this.libraryScroll}) {
-      ListItem() {
-        Row({space:12}) {
-          this.libraryStat(String(this.favorites.length),'部收藏')
-          this.libraryStat(String(this.records.length),'条观看记录')
-        }.width('100%').margin({bottom:8})
-      }
-      ListItem() { Text(`收藏 · ${this.favorites.length}`).fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).width('100%') }
+      ListItem() { Text(`收藏 · ${this.favorites.length}`).fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').margin({top:6}) }
       if (!this.favorites.length) { ListItem() { Text('在影片详情中点击“加入收藏”').fontSize(14).fontColor(MUTED).width('100%').padding(18) } }
-      ForEach(this.favorites,(item: Movie) => {
-        ListItem() { this.favoriteCard(item) }
-          .borderRadius(16).clip(true)
-          .swipeAction({
-            start:{builder:(): void => { this.favoriteOpenAction(item); },actionAreaDistance:56,onAction:(): void => { this.openMovie(item); }},
-            end:{builder:(): void => { this.favoriteDeleteAction(item); },actionAreaDistance:56,onAction:(): void => this.removeFavorite(item)},
-            edgeEffect:SwipeEdgeEffect.Spring
-          })
-          .accessibilityDescription('左滑取消收藏，右滑查看详情')
-      },(item: Movie): string => `${item.title}|${item.year}`)
+      else {
+        ListItem() {
+          Scroll() {
+            Row({space:12}) {
+              ForEach(this.favorites,(item: Movie) => { this.favoritePoster(item) },(item: Movie): string => `${item.title}|${item.year}`)
+            }.padding({right:20})
+          }.scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).height(188).width('100%')
+        }
+      }
       ListItem() {
         Row() {
           Text('继续观看').fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
@@ -1124,46 +1127,19 @@ struct Index {
       .onClick((): void => this.deleteRecord(record))
   }
   @Builder
-  favoriteCard(item: Movie) {
-    Row({space:12}) {
+  favoritePoster(item: Movie) {
+    Column({space:6}) {
       Stack() {
-        Text(item.title.slice(0,6)).fontSize(12).fontColor('#FFFFFF').padding(6).textAlign(TextAlign.Center)
+        Text(item.title.slice(0,8)).fontSize(12).fontColor('#FFFFFF').padding(8).textAlign(TextAlign.Center)
         if (validUrl(item.cover,true)) { Image(item.cover).width('100%').height('100%').objectFit(ImageFit.Cover) }
-      }.width(62).height(86).borderRadius(10).backgroundColor('#2F5D65').clip(true)
-      Column({space:4}) {
-        Text(item.title).fontSize(15).fontWeight(FontWeight.Medium).fontColor(INK).maxLines(1).width('100%')
-        Text([item.year,item.remarks].filter((value: string): boolean => !!value).join(' · ') || '查看详情').fontSize(11).fontColor(MUTED).maxLines(1).width('100%')
-      }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-      Text('›').fontSize(24).fontColor(ACCENT)
-    }.padding(10).width('100%').backgroundColor(CARD).borderRadius(16).onClick((): void => { this.openMovie(item); })
-      .stateStyles({pressed:{opacity:0.82}}).accessibilityText(`${item.title}，查看详情`)
-  }
-  @Builder
-  favoriteDeleteAction(item: Movie) {
-    Button({type:ButtonType.Normal}) {
-      Column({space:5}) {
-        SymbolGlyph($r('sys.symbol.heart')).fontSize(20).fontColor([Color.White])
-        Text('取消收藏').fontSize(12).fontWeight(FontWeight.Medium).fontColor(Color.White)
-      }.justifyContent(FlexAlign.Center).height('100%').width('100%')
-    }.width(80).height('100%').backgroundColor('#D94D59').borderRadius(16).accessibilityText('取消收藏')
-      .onClick((): void => this.removeFavorite(item))
-  }
-  @Builder
-  favoriteOpenAction(item: Movie) {
-    Button({type:ButtonType.Normal}) {
-      Column({space:5}) {
-        SymbolGlyph($r('sys.symbol.play_circle')).fontSize(20).fontColor([Color.White])
-        Text('详情').fontSize(12).fontWeight(FontWeight.Medium).fontColor(Color.White)
-      }.justifyContent(FlexAlign.Center).height('100%').width('100%')
-    }.width(72).height('100%').backgroundColor(ACCENT).borderRadius(16).accessibilityText('查看详情')
-      .onClick((): void => { this.openMovie(item); })
-  }
-  @Builder
-  libraryStat(value: string, label: string) {
-    Column({space:5}) {
-      Text(value).fontSize(28).fontWeight(FontWeight.Medium).fontColor(INK)
-      Text(label).fontSize(12).fontColor(MUTED)
-    }.layoutWeight(1).padding(20).backgroundColor(CARD).borderRadius(24)
+      }.width(108).height(154).borderRadius(12).backgroundColor('#2F5D65').clip(true)
+      Text(item.title).fontSize(12).fontColor(INK).maxLines(1).width(108).textOverflow({overflow:TextOverflow.Ellipsis})
+    }.width(108)
+      .gesture(GestureGroup(GestureMode.Exclusive,
+        LongPressGesture({repeat:false,duration:500}).onAction((): void => { this.showFavoriteMenu(item); }),
+        TapGesture().onAction((): void => { this.openMovie(item); })
+      ))
+      .accessibilityText(`${item.title}，长按管理`)
   }
   @Builder
   endpointCard(item: Endpoint, kind: string, order: number) {
@@ -1177,12 +1153,12 @@ struct Index {
           .onChange((value: boolean): void => this.toggleEndpoint(kind,item,value))
       }.width('100%')
       Row({space:6}) {
-        Button('编辑',{type:ButtonType.Normal}).fontSize(12).height(30).fontColor(ACCENT).backgroundColor(BG).onClick((): void => this.edit(kind,item))
-        Button('删除',{type:ButtonType.Normal}).fontSize(12).height(30).fontColor('#BC5050').backgroundColor(BG).onClick((): void => this.removeEndpoint(kind,item))
+        Button('编辑',{type:ButtonType.Normal}).fontSize(12).height(30).fontColor(ACCENT).backgroundColor(BG).borderRadius(10).onClick((): void => this.edit(kind,item))
+        Button('删除',{type:ButtonType.Normal}).fontSize(12).height(30).fontColor('#BC5050').backgroundColor(BG).borderRadius(10).onClick((): void => this.removeEndpoint(kind,item))
         if (item.apiKey) { Text('已设置 Bearer 令牌').fontSize(10).fontColor(MUTED) }
       }.width('100%')
     }.padding({left:14,right:12,top:10,bottom:10}).backgroundColor(CARD).borderRadius(16).width('100%')
-      .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({y:10}))
+      .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({x:-28}))
         .animation({duration:this.reduceMotion ? 0 : 220,curve:Curve.Friction,delay:this.reduceMotion ? 0 : order*32}))
   }
   @Builder
@@ -1295,7 +1271,8 @@ struct Index {
                 Text(`${this.sources.length} 个 · ${this.activeSources().length} 启用`).fontSize(11).fontColor(MUTED).width('100%')
               }.layoutWeight(1).onClick((): void => this.toggleSection('search'))
               Button('＋ 添加',{type:ButtonType.Normal}).fontSize(12).fontColor(ACCENT).backgroundColor(BG).height(32).borderRadius(10).onClick((): void => this.edit('search'))
-              Text(this.searchOpen ? '⌃' : '⌄').fontSize(18).fontColor(MUTED).padding({left:6,right:6}).onClick((): void => this.toggleSection('search'))
+              SymbolGlyph($r('sys.symbol.chevron_down')).fontSize(16).fontColor([MUTED]).padding({left:8,right:8,top:8,bottom:8})
+                .rotate({angle:this.searchOpen ? 180 : 0}).onClick((): void => this.toggleSection('search'))
             }.padding(16).width('100%').backgroundColor(CARD).borderRadius(20)
             if (this.searchOpen) {
               ForEach(this.sources,(item: Endpoint,index: number) => { this.endpointCard(item,'search',index) },(item: Endpoint): string => `${item.id}|${item.name}|${item.url}|${item.type}|${item.enabled}`)
@@ -1308,7 +1285,8 @@ struct Index {
                 Text(`${this.parsers.length} 个 · ${this.activeParsers().length} 启用`).fontSize(11).fontColor(MUTED).width('100%')
               }.layoutWeight(1).onClick((): void => this.toggleSection('parser'))
               Button('＋ 添加',{type:ButtonType.Normal}).fontSize(12).fontColor(ACCENT).backgroundColor(BG).height(32).borderRadius(10).onClick((): void => this.edit('parser'))
-              Text(this.parserOpen ? '⌃' : '⌄').fontSize(18).fontColor(MUTED).padding({left:6,right:6}).onClick((): void => this.toggleSection('parser'))
+              SymbolGlyph($r('sys.symbol.chevron_down')).fontSize(16).fontColor([MUTED]).padding({left:8,right:8,top:8,bottom:8})
+                .rotate({angle:this.parserOpen ? 180 : 0}).onClick((): void => this.toggleSection('parser'))
             }.padding(16).width('100%').backgroundColor(CARD).borderRadius(20)
             if (this.parserOpen) {
               Text('MP4 / M3U8 直链会直接原生播放，不需要解析接口；网页链接再选择下面的接口。').fontSize(11).fontColor(MUTED).lineHeight(17).width('100%')
