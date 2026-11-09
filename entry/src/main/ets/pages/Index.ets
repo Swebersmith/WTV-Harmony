@@ -25,7 +25,7 @@ const CARD: Resource = $r('app.color.card_background');
 const INK: Resource = $r('app.color.text_primary');
 const MUTED: Resource = $r('app.color.text_secondary');
 const ACCENT: string = '#167E6B';
-const VERSION: string = '1.7.7';
+const VERSION: string = '1.7.8';
 
 @Entry
 @Component
@@ -71,6 +71,7 @@ struct Index {
   private resolveSerial: number = 0;
   private recordSerial: number = 0;
   private savedAt: number = 0;
+  private persistedAt: number = 0;
   private suppressedRecords: Set<string> = new Set<string>();
   private undoRecord?: WatchRecord;
   private undoIndex: number = 0;
@@ -291,6 +292,7 @@ struct Index {
       this.keepAwake(false);
     }
     this.tabChangedAt = Date.now(); this.tab = index; this.tabs.changeIndex(index);
+    if (index === 2) this.savePosition(true);
     this.keepAwake(this.playing && this.foreground && index === 1 && !this.pipActive); this.syncPip();
   }
   repeatTab(index: number): void {
@@ -602,11 +604,13 @@ struct Index {
     this.inputUrl = this.currentEpisode.url; this.resumeAt = 0; this.resolve();
   }
   savePosition(force: boolean = false): void {
-    if (!this.recordReady || !this.activeEpisode.url || this.suppressedRecords.has(this.activeEpisode.url) || (!force && Date.now()-this.savedAt < 10000)) return;
-    this.savedAt = Date.now();
-    const record: WatchRecord = {movie:this.activeMovie,episode:this.activeEpisode,seconds:originalTime(this.elapsed,this.adRanges),updated:Date.now()};
+    const now = Date.now();
+    if (!this.recordReady || !this.activeEpisode.url || this.suppressedRecords.has(this.activeEpisode.url) || (!force && now-this.savedAt < 1000)) return;
+    this.savedAt = now;
+    const record: WatchRecord = {movie:this.activeMovie,episode:this.activeEpisode,seconds:originalTime(this.elapsed,this.adRanges),updated:now};
     this.records = [record,...this.records.filter((r: WatchRecord): boolean => r.episode.url !== record.episode.url)].slice(0,100);
-    this.persist();
+    // Update the visible row every second, but only touch preferences every 10 seconds.
+    if (force || now-this.persistedAt >= 10000) { this.persistedAt = now; this.persist(); }
   }
   resume(record: WatchRecord): void {
     this.currentMovie = record.movie; this.currentEpisode = record.episode;
@@ -1119,7 +1123,7 @@ struct Index {
           }.padding({left:20,right:20}).width('100%')
         }.borderRadius(20).clip(true).swipeAction({end:{builder:(): void => { this.recordDeleteAction(record); },actionAreaDistance:56,onAction:(): void => this.deleteRecord(record)},edgeEffect:SwipeEdgeEffect.Spring})
           .accessibilityDescription('左滑删除观看记录')
-      },(record: WatchRecord): string => record.episode.url)
+      },(record: WatchRecord): string => `${record.episode.url}|${Math.floor(record.seconds)}`)
       ListItem() { Column().height(this.getUIContext().px2vp(this.safeBottomPx)+88).width('100%') }
     }.width('100%').height('100%').constraintSize({maxWidth:760})
       .scrollBar(BarState.Off).edgeEffect(EdgeEffect.Spring,{alwaysEnabled:true})

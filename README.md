@@ -4,7 +4,7 @@
 
 使用 ArkTS / ArkUI 构建的鸿蒙原生影视搜索与播放应用。
 
-当前版本 **1.7.7 开发预览**：HarmonyOS API 26，最低 API 23，原生播放库支持 **ARM64**。包名为 `io.webber.wtv`。
+当前版本 **1.7.8 开发预览**：HarmonyOS API 26，最低 API 23，原生播放库支持 **ARM64**。包名为 `io.webber.wtv`。
 
 [下载 HAP 与源码](https://github.com/Swebersmith/WTV-Harmony/releases) · [更新记录](CHANGELOG.md) · [第三方许可](THIRD_PARTY_NOTICES.md)
 
@@ -62,7 +62,7 @@
 
 ## 安装
 
-在 [Releases](https://github.com/Swebersmith/WTV-Harmony/releases/tag/v1.7.7) 下载 `WTV-Harmony-1.7.7-unsigned.hap`。
+在 [Releases](https://github.com/Swebersmith/WTV-Harmony/releases/tag/v1.7.7) 下载已发布的 1.7.7 未签名 HAP；当前源码为 1.7.8 开发预览，尚未发布安装包。
 
 发布附件为**未签名调试包**，需要使用自己的有效鸿蒙签名身份签名后安装。升级时保持相同包名与签名身份，以便覆盖安装并保留本地数据。
 
@@ -95,7 +95,7 @@ node --test .\checks\native.mjs
 
 也可运行 `npm ci --ignore-scripts` 与 `npm test`，使用固定版本的标准 TypeScript 转译器执行同一组逻辑检查。测试中的 HTTP、音量、窗口、AVSession、后台任务、PiP 和 MPV 运行时使用替身；页面事件处理器只验证逻辑，不模拟渲染。
 
-**验证范围：** API 26 编译、ARM64 原生库和 HAP 结构检查已通过，83 项逻辑检查通过。1.7.7 的收藏横向海报与长按菜单、续播补齐选集、接口左侧滑出动画、二级页返回图标、片单模糊起点与标题间距、播放器上滑取消进度、去按钮遮罩、按压回弹与轻阴影需要在真机上复测；投播还取决于接收端设备与局域网。逻辑替身不能验证系统 UI、系统后台调度或实际解码连续性。
+**验证范围：** API 26 编译、ARM64 原生库和 HAP 结构检查已通过，83 项逻辑检查通过。1.7.8 的继续观看进度实时刷新、收藏横向海报与长按菜单、续播补齐选集、接口左侧滑出动画、二级页返回图标、片单模糊起点与标题间距、播放器上滑取消进度、去按钮遮罩、按压回弹与轻阴影需要在真机上复测；投播还取决于接收端设备与局域网。逻辑替身不能验证系统 UI、系统后台调度或实际解码连续性。
 
 ## 许可与来源
 
