@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="WTV 鸿蒙应用隐私政策：说明本机数据、网络请求、剪贴板、诊断日志、权限与用户权利。">
+  <title>WTV 隐私政策</title>
+  <style>
+    :root {
+      --ink: #17201f;
+      --muted: #5f6f6c;
+      --accent: #167e6b;
+      --accent-soft: #e6f3f0;
+      --bg: #f4f8f7;
+      --card: #ffffff;
+      --line: #dfeae7;
+      --radius: 18px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "HarmonyOS Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+      line-height: 1.85;
+      -webkit-font-smoothing: antialiased;
+    }
+    .hero {
+      background: linear-gradient(135deg, #0f5f52 0%, #167e6b 55%, #2a9d86 100%);
+      color: #fff;
+      padding: 56px 20px 44px;
+    }
+    .wrap { width: min(900px, calc(100% - 40px)); margin: 0 auto; }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      font-size: 13px;
+      opacity: .92;
+    }
+    .brand-mark {
+      width: 28px; height: 28px; border-radius: 8px;
+      display: grid; place-items: center;
+      background: rgba(255,255,255,.16);
+      border: 1px solid rgba(255,255,255,.25);
+      font-size: 12px;
+    }
+    h1 { font-size: clamp(30px, 5vw, 44px); line-height: 1.2; margin: 18px 0 12px; letter-spacing: -.02em; }
+    .hero p { margin: 4px 0; color: rgba(255,255,255,.85); font-size: 14px; }
+    .hero .meta { margin-top: 18px; font-size: 13px; color: rgba(255,255,255,.72); }
+    main { padding: 34px 0 64px; }
+    .summary {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 22px 24px;
+      box-shadow: 0 10px 30px rgba(18, 60, 52, .05);
+    }
+    .summary strong { color: var(--accent); }
+    .toc {
+      display: flex; flex-wrap: wrap; gap: 8px;
+      margin: 18px 0 26px;
+    }
+    .toc a {
+      color: var(--muted); text-decoration: none; font-size: 13px;
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 999px; padding: 7px 12px;
+      transition: .18s ease;
+    }
+    .toc a:hover { color: var(--accent); border-color: #b9ddd5; background: var(--accent-soft); }
+    section {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 22px 24px;
+      margin: 14px 0;
+    }
+    h2 {
+      font-size: 20px; margin: 2px 0 14px; letter-spacing: -.01em;
+      display: flex; align-items: center; gap: 10px;
+    }
+    h2 .num {
+      display: inline-grid; place-items: center;
+      width: 26px; height: 26px; border-radius: 8px;
+      background: var(--accent-soft); color: var(--accent);
+      font-size: 13px; font-weight: 700; flex: none;
+    }
+    h3 { font-size: 15px; margin: 20px 0 8px; color: var(--ink); }
+    p { margin: 8px 0; color: #33413f; }
+    ul { margin: 8px 0 8px 1.1em; padding: 0; }
+    li { margin: 6px 0; color: #33413f; }
+    .muted { color: var(--muted); }
+    .tag {
+      display: inline-block; font-size: 12px; color: var(--accent);
+      background: var(--accent-soft); border-radius: 999px; padding: 2px 9px;
+      margin-left: 6px; vertical-align: 1px;
+    }
+    table {
+      width: 100%; border-collapse: collapse; margin: 12px 0 4px;
+      font-size: 14px; overflow: hidden; border-radius: 12px;
+    }
+    th, td { text-align: left; padding: 11px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { background: #f1f8f5; color: #244b43; font-weight: 600; }
+    tr:last-child td { border-bottom: none; }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: .9em; background: #f0f5f3; border: 1px solid #e0ebe7;
+      border-radius: 6px; padding: 1px 5px;
+    }
+    .note {
+      border-left: 3px solid var(--accent);
+      background: #f2faf7; border-radius: 0 10px 10px 0;
+      padding: 10px 14px; color: #315c53; font-size: 14px;
+      margin: 14px 0;
+    }
+    a { color: var(--accent); }
+    footer {
+      border-top: 1px solid var(--line);
+      padding: 22px 0 40px; color: var(--muted); font-size: 13px;
+    }
+    @media (max-width: 600px) {
+      .hero { padding: 42px 16px 34px; }
+      .wrap { width: calc(100% - 28px); }
+      section { padding: 18px 16px; border-radius: 14px; }
+      .summary { padding: 18px 16px; }
+      th, td { padding: 9px 8px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="wrap">
+      <div class="brand"><span class="brand-mark">W</span> WTV · HARMONYOS</div>
+      <h1>隐私政策</h1>
+      <p>适用应用：WTV 鸿蒙应用（包名 <code style="background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.22);color:#fff">io.webber.wtv</code>）</p>
+      <p class="meta">最后更新：2026 年 11 月 9 日 · 生效日期：2026 年 11 月 9 日</p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div class="summary">
+      <strong>简要说明：</strong>WTV 是本地影视搜索与播放工具，没有账号体系，不投放广告，不接入统计 SDK。片单、观看记录、接口配置、搜索历史和诊断日志只保存在本机；只有在您主动搜索、播放、分享或导出日志时，才会向相应站点或系统能力发送必要请求。
+    </div>
+
+    <nav class="toc" aria-label="目录">
+      <a href="#overview">概述</a>
+      <a href="#data">处理的信息</a>
+      <a href="#permissions">系统权限</a>
+      <a href="#sharing">共享与第三方</a>
+      <a href="#retention">存储与删除</a>
+      <a href="#rights">用户权利</a>
+      <a href="#security">安全</a>
+      <a href="#minors">未成年人</a>
+      <a href="#changes">政策变更</a>
+      <a href="#contact">联系我们</a>
+    </nav>
+
+    <section id="overview">
+      <h2><span class="num">1</span>概述</h2>
+      <p>本政策说明 WTV 鸿蒙应用（以下简称“WTV”或“本应用”）如何访问、使用、保存和保护信息。WTV 由 <strong>Swebersmith</strong>（以下称“开发者”）提供。</p>
+      <p>WTV 的核心功能是：根据您输入的片名或链接，向您配置的搜索接口/默认站点请求搜索结果；在您选择影片后，请求详情、解析或媒体地址，并使用系统原生播放器播放。WTV 不要求注册账号，不建立用户画像，不投放广告，不接入第三方统计 SDK。</p>
+      <div class="note">本政策仅适用于 WTV 应用本身。您在应用内访问的第三方站点、解析服务、媒体源和投屏接收端由其运营者独立处理数据，适用其各自的隐私政策。</div>
+    </section>
+
+    <section id="data">
+      <h2><span class="num">2</span>我们处理的信息</h2>
+
+      <h3>2.1 保存在本机的信息</h3>
+      <ul>
+        <li><strong>接口配置</strong>：站点地址、搜索接口、解析接口、接口名称、启用状态，以及您填写的接口令牌（如有）。</li>
+        <li><strong>片单与记录</strong>：收藏、观看记录、上次播放进度、最近搜索词。</li>
+        <li><strong>播放设置</strong>：后台播放、自动小窗、自动连播、HLS 去插播、减少动效、主题/外观等。</li>
+        <li><strong>诊断日志</strong>：播放步骤、上次退出原因、系统提供的崩溃/冻屏摘要与堆栈。</li>
+      </ul>
+      <p>上述信息保存在应用私有目录，不会自动上传到开发者服务器。您可以在应用内清空观看记录、搜索历史或诊断日志，也可以卸载应用删除全部本机数据。</p>
+
+      <h3>2.2 网络请求</h3>
+      <p>当您搜索、打开详情、解析或播放时，WTV 会向以下对象发送必要请求：</p>
+      <ul>
+        <li>您在「接口设置」中配置的搜索、解析、站点同步接口；</li>
+        <li>默认站点 <code>https://wtv.webber.qzz.io</code>（用于默认搜索/配置同步）；</li>
+        <li>您选择播放的媒体地址、网页播放线路，以及可选的预处理服务。</li>
+      </ul>
+      <p>这些请求可能包含您输入的搜索词、影片/剧集地址、接口令牌（如有），以及常规网络信息（IP 地址、User-Agent、请求时间）。对应站点可能按常规服务器日志记录这些信息，具体以其隐私政策为准。</p>
+
+      <h3>2.3 剪贴板</h3>
+      <p>只有在您主动点击「粘贴」按钮时，WTV 才读取剪贴板文本，用于填入视频链接；不会在后台读取、轮询或上传剪贴板内容。</p>
+
+      <h3>2.4 分享、投屏与系统能力</h3>
+      <ul>
+        <li><strong>系统分享</strong>：您点击「分享」时，WTV 调用系统分享面板，把当前视频链接交给系统及您选择的目标应用。</li>
+        <li><strong>投屏</strong>：您选择投屏设备后，WTV 通过系统投播能力把当前媒体地址发送给您选择的接收端；接收端可能记录该地址和网络信息。</li>
+        <li><strong>画中画 / 后台播放 / 系统播控</strong>：由鸿蒙系统提供，WTV 仅向系统注册媒体会话和播放状态，不借此收集您的个人信息。</li>
+      </ul>
+
+      <h3>2.5 诊断日志</h3>
+      <p>诊断日志仅保存在本机，不自动上传。您可以在「应用版本 → 错误与播放日志」导出 TXT、复制或清空。导出前应用会遮盖 HTTP(S) 链接和常见 token / password / Authorization 字段；系统日志仍可能包含设备运行信息，请在分享前自行检查。</p>
+
+      <h3>2.6 我们不会主动收集</h3>
+      <p>WTV 不申请也不读取您的通讯录、短信、精确位置、相册、相机、麦克风或已安装应用列表；不收集广告标识符；不进行跨应用追踪。</p>
+    </section>
+
+    <section id="permissions">
+      <h2><span class="num">3</span>系统权限</h2>
+      <table>
+        <thead><tr><th>权限</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><code>ohos.permission.INTERNET</code></td><td>搜索、详情、解析、媒体播放、站点同步。</td></tr>
+          <tr><td><code>ohos.permission.GET_NETWORK_INFO</code></td><td>显示网络状态，在网络切换时给出提示。</td></tr>
+          <tr><td><code>ohos.permission.KEEP_BACKGROUND_RUNNING</code></td><td>后台音频播放、系统媒体任务与画中画。</td></tr>
+        </tbody>
+      </table>
+      <p class="muted">WTV 不申请相机、麦克风、通讯录、定位、相册或文件读取权限。</p>
+    </section>
+
+    <section id="sharing">
+      <h2><span class="num">4</span>共享与第三方</h2>
+      <p>除以下情形外，开发者不会向第三方共享您的信息：</p>
+      <ul>
+        <li>您主动使用系统分享或投屏；</li>
+        <li>您配置的第三方站点在提供搜索、解析或播放服务时自行接收请求；</li>
+        <li>法律法规要求，或有权机关依法要求。</li>
+      </ul>
+      <p>WTV 不向第三方出售数据，不接入广告 SDK、统计 SDK 或推送 SDK。应用使用的开源组件（如 libmpv、FFmpeg、OHCodec 等）仅在设备本地运行，不构成数据共享；许可信息见仓库的 <a href="https://github.com/Swebersmith/WTV-Harmony/blob/main/THIRD_PARTY_NOTICES.md" rel="noopener">THIRD_PARTY_NOTICES.md</a>。</p>
+    </section>
+
+    <section id="retention">
+      <h2><span class="num">5</span>存储、保留与删除</h2>
+      <ul>
+        <li><strong>存储位置</strong>：应用私有目录；不进行云同步。</li>
+        <li><strong>保留期限</strong>：本机数据保留到您主动清空或卸载应用；诊断日志按容量轮换，最多保留有限份数。</li>
+        <li><strong>删除方式</strong>：在应用内删除单条记录/收藏、清空观看记录、清空搜索历史、清空日志；卸载应用会删除全部本机数据。</li>
+        <li><strong>开发者服务器</strong>：WTV 不上传片单、观看记录、搜索历史或诊断日志到开发者服务器；默认站点仅按普通网络请求处理搜索/配置请求，可能保留常规服务器日志。</li>
+      </ul>
+    </section>
+
+    <section id="rights">
+      <h2><span class="num">6</span>您的权利</h2>
+      <p>在适用法律允许的范围内，您对与本应用相关的信息享有以下权利：</p>
+      <ul>
+        <li><strong>访问与更正</strong>：在应用「片单」「接口设置」「应用版本」中查看和修改本机保存的信息。</li>
+        <li><strong>删除</strong>：删除单条收藏/记录、清空观看记录、清空搜索历史、清空诊断日志，或卸载应用。</li>
+        <li><strong>撤回同意</strong>：关闭后台播放、自动小窗、投屏等可选功能；停止使用相应功能即停止相关处理。</li>
+        <li><strong>咨询与投诉</strong>：通过下方联系方式与开发者联系。</li>
+      </ul>
+      <p>如果您配置的第三方站点保存了您的请求信息，请直接联系该站点的运营者行使权利；开发者无法删除第三方站点独立保存的数据。</p>
+    </section>
+
+    <section id="security">
+      <h2><span class="num">7</span>安全</h2>
+      <p>WTV 采用应用私有目录保存本机数据，并遵循最小权限原则，仅申请实现功能所必需的权限。互联网传输受相应站点采用的 HTTPS 等机制保护；但任何网络传输都无法保证绝对安全，请避免在不可信网络中填写敏感接口令牌。</p>
+      <p>诊断日志在导出前会遮盖常见敏感字段，但仍可能包含设备运行信息。请仅在信任的环境下分享日志。</p>
+    </section>
+
+    <section id="minors">
+      <h2><span class="num">8</span>未成年人</h2>
+      <p>WTV 不面向未成年人单独设计，也不主动收集未成年人个人信息。未成年人应在监护人指导下使用本应用；如监护人发现未成年人向第三方站点提交了信息，请联系相应站点处理。</p>
+    </section>
+
+    <section id="changes">
+      <h2><span class="num">9</span>政策变更</h2>
+      <p>开发者可能因功能、法规或系统能力变化更新本政策，并在本页面标注新的“最后更新”日期。重大变更会在生效前通过应用内提示或发布页面等合理方式告知。继续使用本应用即表示您接受更新后的政策。</p>
+    </section>
+
+    <section id="contact">
+      <h2><span class="num">10</span>联系我们</h2>
+      <p>开发者：Swebersmith（WTV 开发者）</p>
+      <p>联系渠道：<a href="https://github.com/Swebersmith/WTV-Harmony/issues" rel="noopener">GitHub Issues</a>（通常 7 个工作日内回复）。</p>
+      <p>应用与版本：WTV 1.7.8（<code>io.webber.wtv</code>）</p>
+      <p class="muted">如果您通过华为 AppGallery 安装本应用，也可在应用详情页查看开发者提供的联系方式。</p>
+    </section>
+  </main>
+
+  <footer class="wrap">
+    <p>WTV · 鸿蒙原生影视搜索与播放工具 · 本页面为公开隐私政策页面。</p>
+    <p><a href="https://github.com/Swebersmith/WTV-Harmony" rel="noopener">项目主页</a> · <a href="#rights">用户权利</a> · <a href="#overview">返回顶部</a></p>
+  </footer>
+</body>
+</html>
