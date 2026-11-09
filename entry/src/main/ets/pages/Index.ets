@@ -779,7 +779,7 @@ struct Index {
       content:{title:{mainTitle:title,mainTitleSize:TitleSize.TITLE_ML}},
       style:{
         scrollEffectOpts:{enableScrollEffect:true,scrollEffectType:ScrollEffectType.IMMERSIVE_GRADIENT_BLUR,
-          blurEffectiveStartOffset:LengthMetrics.vp(0),blurEffectiveEndOffset:LengthMetrics.vp(32)},
+          blurEffectiveStartOffset:LengthMetrics.vp(0),blurEffectiveEndOffset:LengthMetrics.vp(56)},
         originalStyle:{backgroundStyle:{backgroundColor:Color.Transparent,blurRadius:0},contentStyle:{titleStyle:{mainTitleColor:INK},backIconStyle:{iconColor:INK}}},
         scrollEffectStyle:{backgroundStyle:{backgroundColor:BG,blurRadius:20},contentStyle:{titleStyle:{mainTitleColor:INK},backIconStyle:{iconColor:INK}}},
         systemMaterialEffect:{materialType:this.tabMaterial,materialLevel:hdsMaterial.MaterialLevel.ADAPTIVE},thermoCtrl:true
@@ -1074,7 +1074,12 @@ struct Index {
   @Builder
   libraryPage() {
     List({space:14,scroller:this.libraryScroll}) {
-      ListItem() { Text(`收藏 · ${this.favorites.length}`).fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').padding({left:20,right:20}).margin({top:6}) }
+      ListItem() {
+        Column() {
+          Blank().height(this.getUIContext().px2vp(this.safeTopPx)+72)
+          Text(`收藏 · ${this.favorites.length}`).fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').padding({left:20,right:20}).margin({top:6})
+        }.width('100%')
+      }
       if (!this.favorites.length) { ListItem() { Text('在影片详情中点击“加入收藏”').fontSize(14).fontColor(MUTED).width('100%').padding({left:20,right:20,top:18,bottom:18}) } }
       else {
         ListItem() {
@@ -1115,8 +1120,8 @@ struct Index {
         }.borderRadius(20).clip(true).swipeAction({end:{builder:(): void => { this.recordDeleteAction(record); },actionAreaDistance:56,onAction:(): void => this.deleteRecord(record)},edgeEffect:SwipeEdgeEffect.Spring})
           .accessibilityDescription('左滑删除观看记录')
       },(record: WatchRecord): string => record.episode.url)
+      ListItem() { Column().height(this.getUIContext().px2vp(this.safeBottomPx)+88).width('100%') }
     }.width('100%').height('100%').constraintSize({maxWidth:760})
-      .contentStartOffset(this.getUIContext().px2vp(this.safeTopPx)+72).contentEndOffset(this.getUIContext().px2vp(this.safeBottomPx)+88)
       .scrollBar(BarState.Off).edgeEffect(EdgeEffect.Spring,{alwaysEnabled:true})
   }
   @Builder
@@ -1369,7 +1374,7 @@ struct Index {
         content:{title:{mainTitle:['搜索','播放','片单','设置'][this.tab],mainTitleSize:TitleSize.TITLE_ML}},
         style:{
           scrollEffectOpts:{enableScrollEffect:true,scrollEffectType:ScrollEffectType.IMMERSIVE_GRADIENT_BLUR,
-            blurEffectiveStartOffset:LengthMetrics.vp(0),blurEffectiveEndOffset:LengthMetrics.vp(32)},
+            blurEffectiveStartOffset:LengthMetrics.vp(0),blurEffectiveEndOffset:LengthMetrics.vp(56)},
           originalStyle:{backgroundStyle:{backgroundColor:Color.Transparent,blurRadius:0},contentStyle:{titleStyle:{mainTitleColor:INK}}},
           scrollEffectStyle:{backgroundStyle:{backgroundColor:BG,blurRadius:20},contentStyle:{titleStyle:{mainTitleColor:INK}}},
           systemMaterialEffect:{materialType:this.tabMaterial,materialLevel:hdsMaterial.MaterialLevel.ADAPTIVE},thermoCtrl:true
