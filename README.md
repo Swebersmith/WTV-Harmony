@@ -6,7 +6,7 @@
 
 当前版本 **1.7.8 开发预览**：HarmonyOS API 26，最低 API 23，原生播放库支持 **ARM64**。包名为 `io.webber.wtv`。
 
-[下载 HAP 与源码](https://github.com/Swebersmith/WTV-Harmony/releases) · [更新记录](CHANGELOG.md) · [第三方许可](THIRD_PARTY_NOTICES.md)
+[下载 HAP 与源码](https://github.com/Swebersmith/WTV-Harmony/releases) · [更新记录](CHANGELOG.md) · [隐私政策](https://swebersmith.github.io/WTV-Harmony/privacy.html) · [第三方许可](THIRD_PARTY_NOTICES.md)
 
 ## 功能
 
