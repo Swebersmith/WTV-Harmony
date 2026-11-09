@@ -779,7 +779,7 @@ struct Index {
       content:{title:{mainTitle:title,mainTitleSize:TitleSize.TITLE_ML}},
       style:{
         scrollEffectOpts:{enableScrollEffect:true,scrollEffectType:ScrollEffectType.IMMERSIVE_GRADIENT_BLUR,
-          blurEffectiveStartOffset:LengthMetrics.vp(0),blurEffectiveEndOffset:LengthMetrics.vp(56)},
+          blurEffectiveStartOffset:LengthMetrics.vp(16),blurEffectiveEndOffset:LengthMetrics.vp(72)},
         originalStyle:{backgroundStyle:{backgroundColor:Color.Transparent,blurRadius:0},contentStyle:{titleStyle:{mainTitleColor:INK},backIconStyle:{iconColor:INK}}},
         scrollEffectStyle:{backgroundStyle:{backgroundColor:BG,blurRadius:20},contentStyle:{titleStyle:{mainTitleColor:INK},backIconStyle:{iconColor:INK}}},
         systemMaterialEffect:{materialType:this.tabMaterial,materialLevel:hdsMaterial.MaterialLevel.ADAPTIVE},thermoCtrl:true
@@ -841,7 +841,7 @@ struct Index {
       Text('›').fontSize(26).fontColor(ACCENT)
     }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24).shadow({radius:12,color:'#0D000000',offsetY:4})
       .onClick((): void => { this.nav.pushPath({name:target},!this.reduceMotion); })
-      .stateStyles({pressed:{opacity:0.9}}).clickEffect({level:ClickEffectLevel.LIGHT}).animation({duration:this.reduceMotion ? 0 : 140,curve:Curve.Friction}).accessibilityText(title)
+      .stateStyles({pressed:{opacity:0.9}}).clickEffect({level:ClickEffectLevel.LIGHT,scale:0.86}).animation({duration:this.reduceMotion ? 0 : 140,curve:Curve.Friction}).accessibilityText(title)
   }
   @Builder
   switchRow(title: string, value: boolean, enabled: boolean, change: (value: boolean) => void) {
@@ -886,7 +886,7 @@ struct Index {
       }.layoutWeight(1).alignItems(HorizontalAlign.Start)
       Text('›').fontSize(26).fontColor(ACCENT)
     }.width('100%').padding(16).backgroundColor(CARD).borderRadius(24).shadow({radius:12,color:'#0D000000',offsetY:4}).onClick((): void => { this.openMovie(item); })
-      .stateStyles({pressed:{opacity:0.9}}).clickEffect({level:ClickEffectLevel.LIGHT}).animation({duration:this.reduceMotion ? 0 : 140,curve:Curve.Friction})
+      .stateStyles({pressed:{opacity:0.9}}).clickEffect({level:ClickEffectLevel.LIGHT,scale:0.86}).animation({duration:this.reduceMotion ? 0 : 140,curve:Curve.Friction})
       .accessibilityText(`${item.title}，查看详情`)
   }
   @Builder
@@ -980,7 +980,7 @@ struct Index {
                   .textAlign(TextAlign.Center).wordBreak(WordBreak.BREAK_ALL)
                   .padding({left:12,right:12,top:10,bottom:10}).constraintSize({minWidth:56,maxWidth:'100%'})
                   .backgroundColor(CARD).borderRadius(10).margin({right:8,bottom:8}).onClick((): void => this.chooseEpisode(index))
-                  .stateStyles({pressed:{opacity:0.85}}).clickEffect({level:ClickEffectLevel.LIGHT}).animation({duration:this.reduceMotion ? 0 : 120,curve:Curve.Friction}).focusable(true).accessibilityRole(AccessibilityRoleType.BUTTON)
+                  .stateStyles({pressed:{opacity:0.85}}).clickEffect({level:ClickEffectLevel.LIGHT,scale:0.9}).animation({duration:this.reduceMotion ? 0 : 120,curve:Curve.Friction}).focusable(true).accessibilityRole(AccessibilityRoleType.BUTTON)
                   .accessibilityText(episode.title || `第 ${index+1} 集`)
               },(episode: Episode,index: number): string => `${index}|${episode.url}`)
             }.width('100%')
@@ -1060,7 +1060,7 @@ struct Index {
                 .fontColor(index === this.currentIndex ? '#FFFFFF' : INK).textAlign(TextAlign.Center)
                 .padding({left:11,right:11,top:9,bottom:9}).constraintSize({minWidth:54,maxWidth:'100%'}).borderRadius(10)
                 .backgroundColor(index === this.currentIndex ? ACCENT : CARD).margin({right:8,bottom:8}).onClick((): void => this.playCurrentEpisode(index))
-                .stateStyles({pressed:{opacity:0.85}}).clickEffect({level:ClickEffectLevel.LIGHT}).animation({duration:this.reduceMotion ? 0 : 120,curve:Curve.Friction}).focusable(true).accessibilityRole(AccessibilityRoleType.BUTTON).accessibilityText(episode.title)
+                .stateStyles({pressed:{opacity:0.85}}).clickEffect({level:ClickEffectLevel.LIGHT,scale:0.9}).animation({duration:this.reduceMotion ? 0 : 120,curve:Curve.Friction}).focusable(true).accessibilityRole(AccessibilityRoleType.BUTTON).accessibilityText(episode.title)
             })
           }.width('100%')
         }
@@ -1144,7 +1144,7 @@ struct Index {
         LongPressGesture({repeat:false,duration:500}).onAction((): void => { this.showFavoriteMenu(item); }),
         TapGesture().onAction((): void => { this.openMovie(item); })
       ))
-      .stateStyles({pressed:{opacity:0.9}}).clickEffect({level:ClickEffectLevel.LIGHT}).animation({duration:this.reduceMotion ? 0 : 140,curve:Curve.Friction})
+      .stateStyles({pressed:{opacity:0.9}}).clickEffect({level:ClickEffectLevel.LIGHT,scale:0.86}).animation({duration:this.reduceMotion ? 0 : 140,curve:Curve.Friction})
       .accessibilityText(`${item.title}，长按管理`)
   }
   @Builder
@@ -1159,8 +1159,8 @@ struct Index {
           .onChange((value: boolean): void => this.toggleEndpoint(kind,item,value))
       }.width('100%')
       Row({space:6}) {
-        Button('编辑',{type:ButtonType.Normal}).fontSize(12).height(30).fontColor(ACCENT).backgroundColor(BG).borderRadius(10).stateStyles({pressed:{opacity:0.75}}).clickEffect({level:ClickEffectLevel.LIGHT}).animation({duration:this.reduceMotion ? 0 : 120,curve:Curve.Friction}).onClick((): void => this.edit(kind,item))
-        Button('删除',{type:ButtonType.Normal}).fontSize(12).height(30).fontColor('#BC5050').backgroundColor(BG).borderRadius(10).stateStyles({pressed:{opacity:0.75}}).clickEffect({level:ClickEffectLevel.LIGHT}).animation({duration:this.reduceMotion ? 0 : 120,curve:Curve.Friction}).onClick((): void => this.removeEndpoint(kind,item))
+        Button('编辑',{type:ButtonType.Normal}).fontSize(12).height(30).fontColor(ACCENT).backgroundColor(BG).borderRadius(10).stateStyles({pressed:{opacity:0.75}}).clickEffect({level:ClickEffectLevel.LIGHT,scale:0.9}).animation({duration:this.reduceMotion ? 0 : 120,curve:Curve.Friction}).onClick((): void => this.edit(kind,item))
+        Button('删除',{type:ButtonType.Normal}).fontSize(12).height(30).fontColor('#BC5050').backgroundColor(BG).borderRadius(10).stateStyles({pressed:{opacity:0.75}}).clickEffect({level:ClickEffectLevel.LIGHT,scale:0.9}).animation({duration:this.reduceMotion ? 0 : 120,curve:Curve.Friction}).onClick((): void => this.removeEndpoint(kind,item))
         if (item.apiKey) { Text('已设置 Bearer 令牌').fontSize(10).fontColor(MUTED) }
       }.width('100%')
     }.padding({left:14,right:12,top:10,bottom:10}).backgroundColor(CARD).borderRadius(16).shadow({radius:8,color:'#0B000000',offsetY:2}).width('100%')
@@ -1369,7 +1369,7 @@ struct Index {
         content:{title:{mainTitle:['搜索','播放','片单','设置'][this.tab],mainTitleSize:TitleSize.TITLE_ML}},
         style:{
           scrollEffectOpts:{enableScrollEffect:true,scrollEffectType:ScrollEffectType.IMMERSIVE_GRADIENT_BLUR,
-            blurEffectiveStartOffset:LengthMetrics.vp(0),blurEffectiveEndOffset:LengthMetrics.vp(56)},
+            blurEffectiveStartOffset:LengthMetrics.vp(16),blurEffectiveEndOffset:LengthMetrics.vp(72)},
           originalStyle:{backgroundStyle:{backgroundColor:Color.Transparent,blurRadius:0},contentStyle:{titleStyle:{mainTitleColor:INK}}},
           scrollEffectStyle:{backgroundStyle:{backgroundColor:BG,blurRadius:20},contentStyle:{titleStyle:{mainTitleColor:INK}}},
           systemMaterialEffect:{materialType:this.tabMaterial,materialLevel:hdsMaterial.MaterialLevel.ADAPTIVE},thermoCtrl:true
