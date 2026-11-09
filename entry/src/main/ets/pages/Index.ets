@@ -1074,22 +1074,23 @@ struct Index {
   @Builder
   libraryPage() {
     List({space:14,scroller:this.libraryScroll}) {
-      ListItem() { Text(`收藏 · ${this.favorites.length}`).fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').margin({top:6}) }
-      if (!this.favorites.length) { ListItem() { Text('在影片详情中点击“加入收藏”').fontSize(14).fontColor(MUTED).width('100%').padding(18) } }
+      ListItem() { Text(`收藏 · ${this.favorites.length}`).fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').padding({left:20,right:20}).margin({top:6}) }
+      if (!this.favorites.length) { ListItem() { Text('在影片详情中点击“加入收藏”').fontSize(14).fontColor(MUTED).width('100%').padding({left:20,right:20,top:18,bottom:18}) } }
       else {
         ListItem() {
           Scroll() {
             Row({space:12}) {
               ForEach(this.favorites,(item: Movie) => { this.favoritePoster(item) },(item: Movie): string => `${item.title}|${item.year}`)
-            }.padding({right:20})
-          }.scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).height(188).width('100%')
+            }.padding({left:20,right:20})
+          }.scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).height(254).width('100%')
+            .edgeEffect(EdgeEffect.Spring,{alwaysEnabled:true})
         }
       }
       ListItem() {
         Row() {
           Text('继续观看').fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
           Button('清空记录').fontSize(12).fontColor(MUTED).backgroundColor(Color.Transparent).onClick((): void => this.clearHistory())
-        }.width('100%').margin({top:16})
+        }.width('100%').padding({left:20,right:20}).margin({top:16})
       }
       if (this.undoRecordVisible) {
         ListItem() {
@@ -1097,24 +1098,26 @@ struct Index {
             Text('已删除观看记录').fontSize(12).fontColor(MUTED).layoutWeight(1)
             Button('撤销',{type:ButtonType.Normal}).height(34).fontSize(12).fontColor(EMPHASIS).backgroundColor(Color.Transparent).onClick((): void => this.restoreRecord())
           }.padding({left:16,right:8,top:4,bottom:4}).width('100%').backgroundColor(CARD).borderRadius(16)
-        }
+        }.padding({left:20,right:20})
       }
-      if (!this.records.length) { ListItem() { Text('开始播放后，进度将保存在本机').fontSize(14).fontColor(MUTED).width('100%').padding(18) } }
+      if (!this.records.length) { ListItem() { Text('开始播放后，进度将保存在本机').fontSize(14).fontColor(MUTED).width('100%').padding({left:20,right:20,top:18,bottom:18}) } }
       ForEach(this.records,(record: WatchRecord) => {
         ListItem() {
-          Row({space:12}) {
-            Column({space:6}) {
-              Text(record.movie.title).fontSize(16).fontWeight(FontWeight.Medium).fontColor(INK).width('100%')
-              Text(`${record.episode.title} · 来源 ${this.recordSource(record.movie)} · 已看 ${this.time(record.seconds)}`).fontSize(12).fontColor(MUTED).maxLines(2).width('100%')
-            }.layoutWeight(1)
-            Button('续播').fontSize(13).backgroundColor(ACCENT).onClick((): void => this.resume(record))
-          }.padding(18).backgroundColor(CARD).borderRadius(24).width('100%')
-        }.borderRadius(24).clip(true).swipeAction({end:{builder:(): void => { this.recordDeleteAction(record); },actionAreaDistance:56,onAction:(): void => this.deleteRecord(record)},edgeEffect:SwipeEdgeEffect.Spring})
+          Row() {
+            Row({space:12}) {
+              Column({space:6}) {
+                Text(record.movie.title).fontSize(16).fontWeight(FontWeight.Medium).fontColor(INK).width('100%')
+                Text(`${record.episode.title} · 来源 ${this.recordSource(record.movie)} · 已看 ${this.time(record.seconds)}`).fontSize(12).fontColor(MUTED).maxLines(2).width('100%')
+              }.layoutWeight(1)
+              Button('续播').fontSize(13).backgroundColor(ACCENT).onClick((): void => this.resume(record))
+            }.padding(16).backgroundColor(CARD).borderRadius(20).width('100%')
+          }.padding({left:20,right:20}).width('100%')
+        }.borderRadius(20).clip(true).swipeAction({end:{builder:(): void => { this.recordDeleteAction(record); },actionAreaDistance:56,onAction:(): void => this.deleteRecord(record)},edgeEffect:SwipeEdgeEffect.Spring})
           .accessibilityDescription('左滑删除观看记录')
       },(record: WatchRecord): string => record.episode.url)
-    }.width('100%').height('100%').padding({left:20,right:20}).constraintSize({maxWidth:760})
+    }.width('100%').height('100%').constraintSize({maxWidth:760})
       .contentStartOffset(this.getUIContext().px2vp(this.safeTopPx)+64).contentEndOffset(this.getUIContext().px2vp(this.safeBottomPx)+88)
-      .scrollBar(BarState.Off).edgeEffect(EdgeEffect.Spring)
+      .scrollBar(BarState.Off).edgeEffect(EdgeEffect.Spring,{alwaysEnabled:true})
   }
   @Builder
   recordDeleteAction(record: WatchRecord) {
@@ -1128,13 +1131,15 @@ struct Index {
   }
   @Builder
   favoritePoster(item: Movie) {
-    Column({space:6}) {
+    Column({space:5}) {
       Stack() {
         Text(item.title.slice(0,8)).fontSize(12).fontColor('#FFFFFF').padding(8).textAlign(TextAlign.Center)
         if (validUrl(item.cover,true)) { Image(item.cover).width('100%').height('100%').objectFit(ImageFit.Cover) }
-      }.width(108).height(154).borderRadius(12).backgroundColor('#2F5D65').clip(true)
-      Text(item.title).fontSize(12).fontColor(INK).maxLines(1).width(108).textOverflow({overflow:TextOverflow.Ellipsis})
-    }.width(108)
+      }.width(120).height(170).borderRadius(12).backgroundColor('#2F5D65').clip(true)
+      Text(item.title).fontSize(13).fontColor(INK).maxLines(1).width(120).textOverflow({overflow:TextOverflow.Ellipsis})
+      Text(`来源 ${this.recordSource(item)}`).fontSize(10).fontColor(MUTED).maxLines(1).width(120)
+      Text(item.overview || '暂无简介').fontSize(10).fontColor(MUTED).lineHeight(14).maxLines(2).width(120).textOverflow({overflow:TextOverflow.Ellipsis})
+    }.width(120)
       .gesture(GestureGroup(GestureMode.Exclusive,
         LongPressGesture({repeat:false,duration:500}).onAction((): void => { this.showFavoriteMenu(item); }),
         TapGesture().onAction((): void => { this.openMovie(item); })
