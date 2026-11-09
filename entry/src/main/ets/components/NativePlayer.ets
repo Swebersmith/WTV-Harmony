@@ -220,7 +220,7 @@ export struct NativePlayer {
   icon(asset: Resource, label: string, action: () => void, large: boolean = false) {
     Button({type:ButtonType.Circle}) { Image(asset).width(large ? 28 : 22).height(large ? 28 : 22).objectFit(ImageFit.Contain) }
       .width(large ? 56 : 40).height(large ? 56 : 40).backgroundColor(Color.Transparent)
-      .accessibilityText(label).stateStyles({pressed:{opacity:0.6}}).onClick(action)
+      .accessibilityText(label).stateStyles({pressed:{opacity:0.6}}).clickEffect({level:ClickEffectLevel.LIGHT}).animation({duration:110,curve:Curve.Friction}).onClick(action)
   }
   @Builder
   castGlyph() {
@@ -269,7 +269,7 @@ export struct NativePlayer {
         Text('10 秒').fontSize(10).fontWeight(FontWeight.Medium).fontColor(WHITE)
       }.justifyContent(FlexAlign.Center).width('100%').height('100%')
     }.width(48).height(52).borderRadius(16).backgroundColor(Color.Transparent)
-      .stateStyles({pressed:{opacity:0.55}})
+      .stateStyles({pressed:{opacity:0.55}}).clickEffect({level:ClickEffectLevel.LIGHT}).animation({duration:110,curve:Curve.Friction})
       .accessibilityText(forward ? '快进十秒' : '快退十秒').onClick((): void => {
         this.seek(this.elapsed+(forward ? 10 : -10)); this.showHint(forward ? '快进 10 秒' : '快退 10 秒');
       })
