@@ -1,6 +1,6 @@
 import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
-import { Settings, Library, defaults } from '../model/Models';
+import { Settings, Library, defaults, retiredBuiltin } from '../model/Models';
 
 export class Store {
   private prefs?: preferences.Preferences;
@@ -15,8 +15,15 @@ export class Store {
     if (!Array.isArray(this.settings.parsers)) this.settings.parsers = defaults().parsers;
     // 1.7.6 removes the built-in direct/page pseudo parsers; direct media links are recognised in playback.
     this.settings.parsers = this.settings.parsers.filter((parser): boolean => parser.type !== 'direct' && parser.type !== 'page');
-    if ((this.settings.schemaVersion || 1) < 3) this.settings.schemaVersion = 3;
+    const migrate = (this.settings.schemaVersion || 1) < 4;
+    if (migrate) {
+      if (retiredBuiltin(this.settings.site || '')) this.settings.site = '';
+      this.settings.searches = this.settings.searches.filter((endpoint): boolean => !retiredBuiltin(endpoint.url));
+      this.settings.parsers = this.settings.parsers.filter((endpoint): boolean => !retiredBuiltin(endpoint.url));
+      this.settings.schemaVersion = 4;
+    }
     if (library) { try { this.library = JSON.parse(library) as Library; } catch { this.library = {favorites:[],records:[],queries:[]}; } }
+    if (migrate) await this.save();
   }
   async save(): Promise<void> {
     if (!this.prefs) throw new Error('本地存储尚未就绪');

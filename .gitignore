@@ -9,3 +9,6 @@ last-build.log
 *.p7b
 *.cer
 signing*.json
+
+*.hap
+*.app

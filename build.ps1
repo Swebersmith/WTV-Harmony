@@ -63,7 +63,7 @@ New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
 $suffix = if ($SigningConfigPath) {'signed'} else {'unsigned'}
 $inputHap = Join-Path $BuildRoot "entry\build\default\outputs\default\entry-default-$suffix.hap"
 $appVersion = (Get-Content -LiteralPath (Join-Path $sourceRoot 'AppScope\app.json5') -Raw | ConvertFrom-Json).app.versionName
-$outputHap = Join-Path $outputRoot "WTV-Harmony-$appVersion-$suffix.hap"
+$outputHap = Join-Path $outputRoot "YingyuVideo-$appVersion-$suffix.hap"
 Copy-Item -LiteralPath $inputHap -Destination $outputHap -Force
 Write-Output "HAP: $outputHap"
 Write-Output "SDK: $($sdk.data.displayName) / $($sdk.data.apiVersion)"

@@ -35,17 +35,26 @@ export interface Library { favorites: Movie[]; records: WatchRecord[]; queries: 
 export const PLATFORMS: string[] = ['tencent','iqiyi','youku','mango','bilibili'];
 export const PLATFORM_NAMES: string[] = ['腾讯视频','爱奇艺','优酷','芒果 TV','哔哩哔哩'];
 export function emptyMovie(): Movie {
-  return { id:'',title:'链接播放',platform:'',year:'',cover:'',overview:'',remarks:'',url:'',detail_url:'',sourceId:'site-default' };
+  return { id:'',title:'链接播放',platform:'',year:'',cover:'',overview:'',remarks:'',url:'',detail_url:'',sourceId:'' };
 }
 export function defaults(): Settings {
   return {
-    site:'https://wtv.webber.qzz.io',
-    searches:[{id:'site-default',name:'WTV 五平台搜索',url:'https://wtv.webber.qzz.io',type:'wtv',apiKey:'',enabled:true}],
+    site:'',
+    searches:[],
     parsers:[{id:'web-lx',name:'LX 解析',url:'https://jx.lxyy.club/index.php?url=',type:'web',apiKey:'',enabled:true},
       {id:'web-qige',name:'七哥解析',url:'https://jx.202617.xyz/tv.php?url=',type:'web',apiKey:'',enabled:true}],
-    autoNext:true,schemaVersion:3,
+    autoNext:true,schemaVersion:4,
     blockAds:true,prepareService:'https://crap.webber.qzz.io/api/player/prepare'
   };
+}
+// Match the retired bundled host for upgrades without storing its address in the app.
+export function retiredBuiltin(value: string): boolean {
+  const host = value.trim().replace(/^https?:\/\//i,'').split(/[/?#:]/)[0].toLowerCase();
+  let fingerprint: number = 2166136261;
+  for (let index = 0; index < host.length; index++) {
+    fingerprint = Math.imul(fingerprint ^ host.charCodeAt(index),16777619) >>> 0;
+  }
+  return fingerprint === 518301246;
 }
 export function movieKey(m: Movie): string { return `${m.sourceId}|${m.platform}|${m.id || m.detail_url || m.url}`; }
 export function officialSearch(source?: Endpoint): boolean {

@@ -279,7 +279,7 @@ export struct NativePlayer {
     Column() {
       Row({space:10}) {
         Column({space:3}) {
-          Text(this.title || 'WTV PLAYER').fontSize(13).fontWeight(FontWeight.Medium).fontColor(WHITE).maxLines(1).width('100%')
+          Text(this.title || '映屿Video').fontSize(13).fontWeight(FontWeight.Medium).fontColor(WHITE).maxLines(1).width('100%')
           Text(this.subtitle || '原生播放').fontSize(10).fontColor('#B9C6CF').maxLines(1).width('100%')
         }.layoutWeight(1)
         if (this.fullscreen) { this.icon($r('app.media.player_lock'),'锁定播放控件',(): void => { this.locked = true; this.panel = ''; this.visible = false; }) }

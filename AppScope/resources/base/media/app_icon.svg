@@ -1,1 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><rect width="512" height="512" rx="112" fill="#10232C"/><rect x="80" y="116" width="352" height="280" rx="64" fill="#A1E6D0"/><rect x="98" y="134" width="316" height="208" rx="46" fill="#142D36"/><g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="17"><path d="M130 198 146 273 173 228 200 273 216 198" stroke="#A1E6D0"/><path d="M239 198h52m-26 0v75" stroke="#F2FAF6"/><path d="m321 198 49 37-49 38" stroke="#A1E6D0"/></g><path d="M142 368h228" fill="none" stroke="#142D36" stroke-opacity=".28" stroke-width="8" stroke-linecap="round"/><path d="M142 368h83" fill="none" stroke="#142D36" stroke-width="8" stroke-linecap="round"/><circle cx="225" cy="368" r="9" fill="#142D36"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="sea" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#173E4B"/>
+      <stop offset="1" stop-color="#0A1C2A"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#sea)"/>
+  <defs>
+    <linearGradient id="island" x1="174" y1="160" x2="342" y2="320" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#DEFFF1"/>
+      <stop offset="1" stop-color="#7DE0C6"/>
+    </linearGradient>
+  </defs>
+  <circle cx="330" cy="166" r="27" fill="#FFCE8D"/>
+  <path d="M174 166 Q174 148 190 158 L343 246 Q361 256 343 267 L190 319 Q174 325 174 306 Z" fill="url(#island)"/>
+  <path d="M126 336 C169 311 210 311 253 331 C296 351 337 351 386 324" fill="none" stroke="#A1E6D0" stroke-width="16" stroke-linecap="round"/>
+  <path d="M175 373 C207 363 230 365 256 376 C283 387 310 385 337 375" fill="none" stroke="#5BAAAB" stroke-width="10" stroke-linecap="round"/>
+</svg>

@@ -25,7 +25,7 @@ const CARD: Resource = $r('app.color.card_background');
 const INK: Resource = $r('app.color.text_primary');
 const MUTED: Resource = $r('app.color.text_secondary');
 const ACCENT: string = '#167E6B';
-const VERSION: string = '1.7.8';
+const VERSION: string = '1.7.9';
 
 @Entry
 @Component
@@ -117,6 +117,8 @@ struct Index {
   @State currentEpisode: Episode = {title:'',url:''};
   @State currentEpisodes: Episode[] = [];
   @State currentIndex: number = -1;
+  @State playbackSource: string = '';
+  @State playbackParser: string = '';
   @State inputUrl: string = '';
   @State mediaUrl: string = '';
   @State nativePlayerMounted: boolean = false;
@@ -279,7 +281,7 @@ struct Index {
   }
   persist(): void {
     if (!this.ready) return;
-    this.store.settings = {site:this.site,searches:this.sources,parsers:this.parsers,autoNext:this.autoNext,schemaVersion:3,blockAds:this.blockAds,prepareService:this.prepareService,reduceMotion:this.reduceMotion,
+    this.store.settings = {site:this.site,searches:this.sources,parsers:this.parsers,autoNext:this.autoNext,schemaVersion:4,blockAds:this.blockAds,prepareService:this.prepareService,reduceMotion:this.reduceMotion,
       backgroundPlayback:this.backgroundPlayback,autoPip:this.autoPip};
     this.store.library = {favorites:this.favorites,records:this.records,queries:this.queries};
     this.store.save().catch((): void => this.notice('保存失败，本次修改可能无法保留'));
@@ -387,6 +389,8 @@ struct Index {
   }
   async resolve(): Promise<void> {
     const serial = ++this.resolveSerial;
+    this.playbackSource = this.currentMovie.sourceId ? this.recordSource(this.currentMovie) : '链接播放';
+    this.playbackParser = isMediaUrl(this.currentEpisode.url) ? '直链播放' : this.activeParsers()[this.parserIndex]?.name || '未选择解析接口';
     if (this.casting) {
       this.casting = false; this.castDevice = ''; this.castPlaying = false;
       this.media.stopCast(false).catch((): void => {});
@@ -1002,7 +1006,7 @@ struct Index {
       Column({space:this.fullscreen || this.webFullscreen ? 0 : 16}) {
         Stack() {
           if (this.nativePlayerMounted) {
-            NativePlayer({controller:this.video,surface:this.videoSurface,title:this.currentMovie.title,subtitle:this.currentEpisode.title,status:this.adStatus,error:this.playerError,
+            NativePlayer({controller:this.video,surface:this.videoSurface,title:this.currentMovie.title,subtitle:`${this.currentEpisode.title} · 来源 ${this.playbackSource}`,status:this.adStatus,error:this.playerError,
               playing:this.playing,buffering:this.resolving || this.buffering,elapsed:this.elapsed,duration:this.duration,fullscreen:this.fullscreen,reduceMotion:this.reduceMotion,active:this.tab === 1,
               inPip:this.pipActive,systemRate:this.playbackRate,videoAspect:this.videoAspect,castReady:this.sessionReady,casting:this.casting,castDevice:this.castDevice,castElapsed:this.castElapsed,castPlaying:this.castPlaying,
               onCastToggle:(): void => this.toggleCast(),onCastStop:(): void => this.stopCasting(),
@@ -1032,6 +1036,7 @@ struct Index {
             }
             Column({space:4}) {
               Text(this.currentMovie.title).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).maxLines(1).width('100%')
+              Text(`来源 ${this.playbackSource} · ${this.playbackParser}`).fontSize(11).fontColor(MUTED).maxLines(2).width('100%')
               Text(this.webUrl ? this.currentEpisode.title : `${this.currentEpisode.title}  ·  ${this.time(this.elapsed)} / ${this.time(this.duration)}`).fontSize(11).fontColor(MUTED).width('100%')
               Text(this.currentMovie.overview || '暂无简介').fontSize(11).fontColor(MUTED).maxLines(2).textOverflow({overflow:TextOverflow.Ellipsis}).width('100%')
             }.layoutWeight(1).alignItems(HorizontalAlign.Start)
@@ -1183,7 +1188,7 @@ struct Index {
         this.settingsEntry('接口设置',`${this.sources.length} 个搜索源 · ${this.parsers.length} 个播放接口`,'endpoints')
         this.settingsEntry('播放设置','后台播放 · 自动小窗 · HLS 去插播','playback')
         this.settingsEntry('通用设置','减少动效 · 观看记录与搜索历史','general')
-        this.settingsEntry('应用版本',`WTV ${VERSION} · 错误与播放日志`,'about')
+        this.settingsEntry('应用版本',`映屿Video ${VERSION} · 错误与播放日志`,'about')
       }.width('100%').padding({left:20,right:20,top:this.settingsTop(),bottom:this.settingsBottom()}).constraintSize({maxWidth:760})
     }.width('100%').height('100%').scrollBar(BarState.Off).edgeEffect(EdgeEffect.Spring)
   }
@@ -1243,7 +1248,7 @@ struct Index {
       Scroll(this.aboutScroll) {
         Column({space:14}) {
           Column({space:8}) {
-            Text(`WTV  ${VERSION} · MPV`).fontSize(17).fontWeight(FontWeight.Medium).fontColor(INK).width('100%')
+            Text(`映屿Video  ${VERSION} · MPV`).fontSize(17).fontWeight(FontWeight.Medium).fontColor(INK).width('100%')
             Text('原生鸿蒙影视搜索与播放应用。搜索、详情、片单与设置使用鸿蒙原生页面；直链由原生播放器播放，网页线路由 ArkWeb 播放。')
               .fontSize(12).fontColor(MUTED).lineHeight(19).width('100%')
           }.padding(18).width('100%').backgroundColor(CARD).borderRadius(24)

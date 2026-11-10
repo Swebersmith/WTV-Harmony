@@ -115,6 +115,7 @@ const pipApi={enabled:true,isPiPEnabled(){return this.enabled;},PiPState:{ABOUT_
   PiPControlType:{VIDEO_PLAY_PAUSE:0,VIDEO_PREVIOUS:1,VIDEO_NEXT:2,FAST_FORWARD:3,FAST_BACKWARD:4},PiPControlStatus:{PLAY:1,PAUSE:0},PiPTemplateType:{VIDEO_PLAY:0},VideoPlayControlGroup:{VIDEO_PREVIOUS_NEXT:101,FAST_FORWARD_BACKWARD:102},
   async create(config,node){await pipGate;const c=new FakePip();c.config=config;c.node=node;pipControllers.push(c);return c;}};
 const nativePlayers = [];
+const preferencesApi = {async getPreferences(){return this.current;}};
 const stream=()=>{const callbacks=[];return {listen:callback=>callbacks.push(callback),emit:value=>callbacks.forEach(cb=>cb(value)),add:value=>callbacks.forEach(cb=>cb(value))};};
 class FakeMpv {
   state={duration:120,eof:false,position:0};
@@ -153,7 +154,7 @@ function load(name) {
   const kits={'@kit.NetworkKit':{http},'@kit.ArkUI':{window:windowApi,PiPWindow:pipApi,typeNode:nodeApi,NodeController:FakeNodeController,FrameNode:FakeFrameNode},'@kit.AudioKit':{audio:audioApi},
     '@kit.AbilityKit':abilityApi,'@kit.BackgroundTasksKit':{backgroundTaskManager:backgroundApi},'@kit.AVSessionKit':{avSession:sessionApi},
     '@kit.MediaKit':{media:mediaApi},
-    '@kit.ArkData':{preferences:{}},'@kit.ShareKit':{},'@kit.UIDesignKit':{HdsTabsController:class{changeIndex(){}},hdsMaterial:{MaterialType:{ADAPTIVE:0}}},
+    '@kit.ArkData':{preferences:preferencesApi},'@kit.ShareKit':{},'@kit.UIDesignKit':{HdsTabsController:class{changeIndex(){}},hdsMaterial:{MaterialType:{ADAPTIVE:0}}},
     '@kit.BasicServicesKit':{deviceInfo},'@kit.PerformanceAnalysisKit':{hilog:{info(){}},hiAppEvent:hiAppEventApi},'@kit.CoreFileKit':{fileIo:fileApi,picker:pickerApi}};
   const localRequire = id => kits[id] || (id.endsWith('components/WebPlayer') ? {WebPlayerHandle:class{exitFullscreen(){return false;}}} :
     id === '@mpv-ohos/mpv-arkts' ? mpvApi : load(path.posix.normalize(path.posix.join(path.posix.dirname(name),id))));
@@ -864,4 +865,47 @@ test('task rejection and system cancellation retain actionable diagnostic result
   await lease.sync(true);assert.match(appPlaybackDiagnostics.report(),/background task acquired id=/);
   backgroundApi.listeners.forEach(cb=>cb({id:taskNumber,reason:2,detailedReason:5}));
   assert.match(appPlaybackDiagnostics.report(),/reason=2 detail=5 ownRelease=false/);assert.equal(lease.isRunning(),false);await lease.close();
+});
+
+
+test('fresh installs start without a site or search source',() => {
+  assert.equal(models.defaults().site,'');
+  assert.deepEqual(models.defaults().searches,[]);
+  assert.equal(models.defaults().schemaVersion,4);
+  assert.equal(models.emptyMovie().sourceId,'');
+});
+
+test('settings migration preserves user endpoints and library and persists the new schema',async () => {
+  const library={favorites:[{title:'收藏'}],records:[],queries:['电影']};
+  const settings={...models.defaults(),schemaVersion:3,site:'https://custom.example',searches:[source()],parsers:[source('json')]};
+  const saved=new Map();let flushed=0;
+  preferencesApi.current={async get(key){return JSON.stringify(key==='settings'?settings:library);},async put(key,value){saved.set(key,JSON.parse(value));},async flush(){flushed++;}};
+  const {Store}=load('services/Store');const store=new Store();await store.open({});
+  assert.equal(store.settings.site,settings.site);
+  assert.deepEqual(store.settings.searches,settings.searches);
+  assert.deepEqual(store.settings.parsers,settings.parsers);
+  assert.equal(store.settings.schemaVersion,4);
+  assert.deepEqual(saved.get('library'),library);
+  assert.equal(saved.get('settings').schemaVersion,4);assert.equal(flushed,1);
+});
+
+test('playback source and parser describe the loaded request independently of picker changes',async () => {
+  const page=new IndexHandlers();
+  page.currentMovie={...models.emptyMovie(),id:'movie',sourceId:'my-source',platform:'resource'};
+  page.currentEpisode={title:'正片',url:'https://media.example/movie.mp4'};
+  page.sources=[{...source(),id:'my-source',name:'自定义片库'}];
+  page.parsers=[{...source('json'),name:'解析一'},{...source('web'),name:'解析二'}];
+  page.savePosition=()=>{};page.keepAwake=()=>{};page.syncBackground=()=>{};page.syncPip=()=>{};
+  page.pip={close:async()=>{}};page.backgroundLease={sync:async()=>{}};page.media={close:async()=>{},update:async()=>{}};
+  page.video={clear(){}};page.adFilter={cancel(){}};page.webPlayer={exitFullscreen(){}};
+  page.api={playback:async()=>({kind:'web',url:'https://player.example'})};
+  // Direct links set the correct origin before native preparation, including failures.
+  page.blockAds=false;await page.resolve();
+  assert.equal(page.playbackSource,'自定义片库');assert.equal(page.playbackParser,'直链播放');
+  page.currentEpisode={title:'正片',url:'https://video.example/watch/1'};page.parserIndex=0;
+  page.video.setKeepAlive=()=>{};page.video.setAudioOnly=()=>{};page.video.detach=()=>{};
+  await page.resolve();assert.equal(page.playbackParser,'解析一');
+  page.parserIndex=1;assert.equal(page.playbackParser,'解析一');
+  page.currentMovie=models.emptyMovie();await page.resolve();
+  assert.equal(page.playbackSource,'链接播放');assert.equal(page.playbackParser,'解析二');
 });

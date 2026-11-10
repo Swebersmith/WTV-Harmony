@@ -1,14 +1,17 @@
-# WTV
+# 映屿Video
 
-![WTV 应用图标](docs/wtv-icon-128.png)
+![映屿Video 应用图标](docs/wtv-icon-128.png)
 
 使用 ArkTS / ArkUI 构建的鸿蒙原生影视搜索与播放应用。
 
-当前版本 **1.7.8 开发预览**：HarmonyOS API 26，最低 API 23，原生播放库支持 **ARM64**。包名为 `io.webber.wtv`。
+当前版本 **1.7.9 开发预览**：HarmonyOS API 26，最低 API 23，原生播放库支持 **ARM64**。包名为 `io.webber.wtv`。
 
-[下载 HAP 与源码](https://github.com/Swebersmith/WTV-Harmony/releases) · [更新记录](CHANGELOG.md) · [隐私政策](https://swebersmith.github.io/WTV-Harmony/privacy.html) · [第三方许可](THIRD_PARTY_NOTICES.md)
+[查看源码与更新记录](https://github.com/Swebersmith/WTV-Harmony/releases) · [更新记录](CHANGELOG.md) · [隐私政策](https://swebersmith.github.io/WTV-Harmony/privacy.html) · [第三方许可](THIRD_PARTY_NOTICES.md)
 
 ## 功能
+
+- 搜索接口和站点地址由用户自行配置。首次使用请在接口设置中添加搜索源。
+- 播放页显示当前内容来源与实际使用的播放接口。
 
 - 原生搜索、影片详情、完整选集、收藏、观看记录和接口管理。设置分为接口、播放、通用、版本四个二级页；接口可折叠分组、单独启用，站点同步项也可编辑。
 - 影片详情与所有二级页使用与栏目页一致的沉浸式渐变模糊标题栏；选集按钮按集名长度自适应排列。
@@ -62,7 +65,7 @@
 
 ## 安装
 
-在 [Releases](https://github.com/Swebersmith/WTV-Harmony/releases/tag/v1.7.7) 下载已发布的 1.7.7 未签名 HAP；当前源码为 1.7.8 开发预览，尚未发布安装包。
+在 [Releases](https://github.com/Swebersmith/WTV-Harmony/releases/tag/v1.7.7) 下载已发布的 1.7.7 未签名 HAP；当前源码为 1.7.9 开发预览，尚未发布安装包。
 
 发布附件为**未签名调试包**，需要使用自己的有效鸿蒙签名身份签名后安装。升级时保持相同包名与签名身份，以便覆盖安装并保留本地数据。
 

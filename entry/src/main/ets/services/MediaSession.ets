@@ -27,7 +27,7 @@ export class MediaSession {
   private revision: number = 0;
   private background: boolean = true;
   private configuredBackground?: boolean;
-  private meta: avSession.AVMetadata = {assetId:'wtv',title:'WTV'};
+  private meta: avSession.AVMetadata = {assetId:'wtv',title:'映屿Video'};
   private lastUpdate: number = 0;
   private lastSeconds: number = 0;
   private lastState: string = '';
@@ -62,7 +62,7 @@ export class MediaSession {
     try { await this.opening; } finally { this.opening = undefined; }
   }
   private async create(context: common.UIAbilityContext, commands: MediaCommands, revision: number): Promise<void> {
-    const session = await avSession.createAVSession(context,'WTV','video');
+    const session = await avSession.createAVSession(context,'映屿Video','video');
     try {
       session.on('play',(): void => { if (this.casting) this.castCommand({command:'play'}).catch((): void => {}); else commands.play(); });
       session.on('pause',(): void => { if (this.casting) this.castCommand({command:'pause'}).catch((): void => {}); else commands.pause(); });
@@ -132,7 +132,7 @@ export class MediaSession {
   }
   metadata(id: string, title: string, subtitle: string, cover: string = '', duration: number = 0): Promise<void> {
     const filter = avSession.ProtocolType.TYPE_CAST_PLUS_STREAM | avSession.ProtocolType.TYPE_DLNA;
-    const value: avSession.AVMetadata = {assetId:id,title:title || 'WTV',artist:subtitle,
+    const value: avSession.AVMetadata = {assetId:id,title:title || '映屿Video',artist:subtitle,
       subtitle,duration:Math.max(0,Math.floor(duration*1000)),skipIntervals:avSession.SkipIntervals.SECONDS_10,filter};
     if (/^https?:\/\//i.test(cover)) value.mediaImage = cover;
     this.meta = value; this.lastState = '';
